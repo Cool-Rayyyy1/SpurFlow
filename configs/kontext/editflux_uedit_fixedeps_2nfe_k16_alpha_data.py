@@ -1,9 +1,9 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
 # `train_flux_edit_fixedeps_alpha_data.sh` -> gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k
-# Same as fixed-eps uedit, plus per-patch alpha head (init 1) on x_ref:
+# Same as fixed-eps uedit, plus per-patch binary alpha gate on x_ref:
+#   2-way softmax logits -> alpha in {0, 1}; init bias favors alpha=1 (use x_ref)
 #   student_u = path_epsilon - alpha * x_ref - pred_delta
-#   alpha scales x_ref in integration; GM deltax mixture is unchanged
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
