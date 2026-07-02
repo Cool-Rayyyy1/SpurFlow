@@ -1,4 +1,4 @@
-_base_ = ['./_ddp_train.py', './_data_trainval_data.py']
+_base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 
 # `train_flux_edit_fixedeps_data_split_stage_gan.sh`
 # Resume fixed-eps pretrain, then split-stage rollout with step-2 DINOv3 GAN.
@@ -45,7 +45,7 @@ model = dict(
             pooled_projection_dim=768,
             guidance_embeds=True,
             torch_dtype='bfloat16',
-            checkpointing=True,
+            checkpointing=False,
             use_lora=True,
             lora_target_modules=[
                 'proj_mlp',
@@ -134,14 +134,14 @@ test_cfg = dict(
 
 optimizer = {
     'diffusion': dict(
-        type='AdamW8bit', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
         paramwise_cfg=dict(
             custom_keys={
                 'proj_out_loggamma': dict(lr_mult=0.1),
             }),
     ),
     'discriminator': dict(
-        type='AdamW8bit', lr=1e-5, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=1e-5, betas=(0.9, 0.95), weight_decay=0.0,
     ),
 }
 

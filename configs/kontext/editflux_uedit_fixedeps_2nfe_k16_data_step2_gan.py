@@ -1,21 +1,15 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_split_stage.sh`
-# Data-dependent fixed-eps edit distillation with a 2-step student rollout.
-# Each batch samples path_epsilon and uses real edited latent x0_tgt. The student
-# rolls out both NFE steps from the sampled noise:
-#   step-1 (t=1): PIID teacher loss only.
-#   step-2 (student step-1 endpoint): split_stage_teacher_loss_weight * PIID loss
-#       + split_stage_diffusion_loss_weight * direct flow loss (path_epsilon - x0_tgt).
-# Step-2 uses split_stage_step2_x_ref_scale * x_ref (default 0.5) in the residual
-# velocity; step-2 gradients backpropagate into step-1.
-# split_stage_step2_warmup_iters linearly ramps step-2 loss from 0 (step-1 only).
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage'
+# `train_flux_edit_fixedeps_data_step2_gan.sh`
+# Standard fixed-eps PIID (not split-stage rollout) + step-2 DINOv3 GAN on 2-NFE endpoint.
+# GAN fake: same 2-NFE rollout as forward_test. Real: edited_images -> DINOv3 Resize(224).
+name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
+dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
-    type='LatentDiffusionImageEdit',
+    type='LatentDiffusionImageEditStep2GAN',
     vae=dict(
         type='PretrainedVAE',
         from_pretrained=kontext_model,
@@ -23,7 +17,7 @@ model = dict(
         freeze=True,
         torch_dtype='bfloat16'),
     diffusion=dict(
-        type='ArcFlowEditImitationSplitStage',
+        type='ArcFlowEditImitationStep2GAN',
         policy_type='ArcFlowEdit',
         denoising=dict(
             type='ArcFluxEditNewTransformer2DModel',
@@ -93,6 +87,13 @@ model = dict(
         num_timesteps=1,
         denoising_mean_mode='U'),
     tie_teacher=True,
+    discriminator=dict(
+        type='DINOv3PatchDiscriminator',
+        checkpoint_path=dinov3_model,
+        input_size=224,
+        global_weight=0.25,
+        patch_weight=1.0,
+        freeze_backbone=True),
 )
 
 save_interval = 500
@@ -104,10 +105,9 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    split_stage_diffusion_loss_weight=0.5,
-    split_stage_teacher_loss_weight=0.5,
-    split_stage_step2_x_ref_scale=0.5,
-    split_stage_step2_warmup_iters=2000,
+    split_stage_gan_warmup_iters=3000,
+    split_stage_gan_ramp_iters=0,
+    split_stage_gan_loss_weight=1.0,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,
@@ -121,13 +121,25 @@ train_cfg = dict(
 test_cfg = dict(
     distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
-    split_stage_step2_x_ref_scale=0.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
     latent_size=(16, 128, 128),
 )
 # yapf: enable
+
+optimizer = {
+    'diffusion': dict(
+        type='AdamW8bit', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
+        paramwise_cfg=dict(
+            custom_keys={
+                'proj_out_loggamma': dict(lr_mult=0.1),
+            }),
+    ),
+    'discriminator': dict(
+        type='AdamW', lr=1e-5, betas=(0.9, 0.95), weight_decay=0.0,
+    ),
+}
 
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
@@ -157,7 +169,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 20000
+total_iters = 25000
 log_config = dict(
     interval=1,
     hooks=[
@@ -178,5 +190,5 @@ custom_hooks = [
 ]
 
 load_from = None
-resume_from = f'checkpoints/{name}/latest.pth'
+resume_from = None
 workflow = [('train', save_interval)]

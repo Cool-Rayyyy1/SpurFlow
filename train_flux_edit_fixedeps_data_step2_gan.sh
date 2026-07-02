@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
-# EditFlow fixed-eps split-stage + step-2 DINOv3 GAN (3 proj heads, no epsilon head):
-#   Loads pretrain ckpt (default iter_20000 from gmkontext_uedit_fixedeps_k16_2nfe_pico400k).
-#   2-step rollout PIID from iter 0 (no split-stage PIID warmup; pretrain step-1 is reused).
-#     step-1 (t=1): PIID teacher loss
-#     step-2 (student step-1 endpoint -> t=0): PIID + optional DINOv3 GAN
-#   GAN schedule: enabled from iter 0 by default (set GAN_WARMUP/GAN_RAMP > 0 to delay/ramp).
-#   Uses FSDP (configs/kontext/_fsdp_train.py) to shard diffusion/teacher/discriminator.
-#   Real: pico edited_images -> DINOv3 Resize(224)
-#   DINOv3: D(x) = 0.25*s_global + 1.0*mean(s_patch)
+# EditFlow fixed-eps PIID + step-2 DINOv3 GAN (3 proj heads, no epsilon head):
+#   Standard random-segment PIID (NOT split-stage rollout).
+#   GAN: after warmup, sample path_epsilon and run the same 2-NFE rollout as forward_test;
+#        hinge GAN on Kontext-decoded t=0 endpoint vs edited_images.
+#   GAN schedule: off for first 3000 iters, then full weight (override via env).
+#   DINOv3: D(x) = 0.25*s_global + 1.0*mean(s_patch)  (same as split_stage_gan)
 #
-#   bash train_flux_edit_fixedeps_data_split_stage_gan.sh              # default: 8 GPUs
-#   bash train_flux_edit_fixedeps_data_split_stage_gan.sh 4
-#   GPU_IDS=0,1 bash train_flux_edit_fixedeps_data_split_stage_gan.sh 2
-#   TOTAL_ITERS=30000 bash train_flux_edit_fixedeps_data_split_stage_gan.sh
+#   bash train_flux_edit_fixedeps_data_step2_gan.sh              # default: 2 GPUs
+#   bash train_flux_edit_fixedeps_data_step2_gan.sh 8
+#   GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_edit_fixedeps_data_step2_gan.sh 8
+#   TOTAL_ITERS=30000 bash train_flux_edit_fixedeps_data_step2_gan.sh
 #
 # Pretrain / fresh:
-#   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_split_stage_gan.sh
-#   FRESH=1 bash train_flux_edit_fixedeps_data_split_stage_gan.sh   # skip pretrain load
+#   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_step2_gan.sh
+#   FRESH=1 bash train_flux_edit_fixedeps_data_step2_gan.sh
 
 set -euo pipefail
 
@@ -28,7 +25,7 @@ if [[ $# -ge 1 && "${1}" =~ ^[0-9]+$ ]]; then
     NUM_GPUS="${1}"
     shift
 else
-    NUM_GPUS="${NUM_GPUS:-${NPROC:-8}}"
+    NUM_GPUS="${NUM_GPUS:-${NPROC:-2}}"
 fi
 
 if ! [[ "${NUM_GPUS}" =~ ^[0-9]+$ ]] || [[ "${NUM_GPUS}" -lt 1 ]]; then
@@ -46,19 +43,17 @@ EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
 KONTEXT_MODEL="${KONTEXT_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev}"
 DINOV3_MODEL="${DINOV3_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors}"
-GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
+GPU_IDS="${GPU_IDS:-0,1}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k/20260618_055623/iter_20000.pth}"
-SPLIT_STAGE_TEACHER_WEIGHT="${SPLIT_STAGE_TEACHER_WEIGHT:-0.5}"
-SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-1.0}"
-SPLIT_STAGE_GAN_WARMUP_ITERS="${SPLIT_STAGE_GAN_WARMUP_ITERS:-0}"
-SPLIT_STAGE_GAN_RAMP_ITERS="${SPLIT_STAGE_GAN_RAMP_ITERS:-0}"
-SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-1.0}"
+STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-3000}"
+STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
+STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-1.0}"
 # --------------------------------
 
-RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_split_stage_gan"
+RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_step2_gan"
 
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 
@@ -89,7 +84,7 @@ if [[ "${FRESH}" != "1" ]]; then
         RESUME_FROM="${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth"
         RESUME_RUN_DIR="${RESUME_RUN_ID}"
         LOAD_FROM=""
-        echo "[resume] resuming split-stage-gan run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
+        echo "[resume] resuming step2-gan run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
     fi
 fi
 if [[ -z "${LOAD_FROM}" && -z "${RESUME_FROM}" ]]; then
@@ -107,11 +102,9 @@ CFG_OPTS=(
     "checkpoint_config.out_dir=checkpoints/${RUN_NAME}"
     "train_cfg.nfe=${NFE}"
     "test_cfg.nfe=${NFE}"
-    "train_cfg.split_stage_teacher_loss_weight=${SPLIT_STAGE_TEACHER_WEIGHT}"
-    "train_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
-    "train_cfg.split_stage_gan_warmup_iters=${SPLIT_STAGE_GAN_WARMUP_ITERS}"
-    "train_cfg.split_stage_gan_ramp_iters=${SPLIT_STAGE_GAN_RAMP_ITERS}"
-    "train_cfg.split_stage_gan_loss_weight=${SPLIT_STAGE_GAN_WEIGHT}"
+    "train_cfg.split_stage_gan_warmup_iters=${STEP2_GAN_WARMUP_ITERS}"
+    "train_cfg.split_stage_gan_ramp_iters=${STEP2_GAN_RAMP_ITERS}"
+    "train_cfg.split_stage_gan_loss_weight=${STEP2_GAN_WEIGHT}"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
     "checkpoint_config.interval=${CKPT_INTERVAL}"
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"
@@ -132,9 +125,9 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow split-stage GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_warmup=${SPLIT_STAGE_GAN_WARMUP_ITERS}  gan_ramp=${SPLIT_STAGE_GAN_RAMP_ITERS}  gan_weight=${SPLIT_STAGE_GAN_WEIGHT}  x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow fixed-eps step2 GAN DDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_warmup=${STEP2_GAN_WARMUP_ITERS}  gan_ramp=${STEP2_GAN_RAMP_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
-    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_split_stage_gan.py \
+    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_gan.py \
     --launcher pytorch --diff_seed \
     --cfg-options "${CFG_OPTS[@]}"
