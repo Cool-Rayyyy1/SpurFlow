@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate alpha patch label images only (no edited outputs, no GPT scoring)."""
+"""v4: per sample save src / edit / heatmap / alpha<0.1 overlay (4 images)."""
 
 from __future__ import annotations
 
@@ -19,11 +19,14 @@ EDITFLOW_ROOT = EVAL_ROOT.parents[1]
 if str(EDITFLOW_ROOT) not in sys.path:
     sys.path.insert(0, str(EDITFLOW_ROOT))
 
-from alpha_vis import capture_student_alphas, render_alpha_grid_blank  # noqa: E402
+from alpha_vis import (  # noqa: E402
+    capture_student_alphas,
+    render_alpha_heatmap,
+    render_src_alpha_low_overlay,
+)
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
 from run_editflow_imgedit_infer import (  # noqa: E402
     DEFAULT_BENCH_ROOT,
-    DEFAULT_KONTEXT_MODEL,
     expected_outputs,
     infer_nfe,
     load_tasks,
@@ -33,11 +36,12 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     resolve_gpu_ids,
     resolve_source_path,
     split_tasks_round_robin,
+    tensor_to_pil,
 )
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Alpha-only patch labels for EditFlow alpha models.")
+    p = argparse.ArgumentParser(description="Alpha v4: src/edit/heatmap/alpha-low per sample.")
     p.add_argument("--suite", choices=("basic", "uge", "basic_uge", "all"), default="basic_uge")
     p.add_argument("--bench_root", type=Path, default=DEFAULT_BENCH_ROOT)
     p.add_argument("--annotations_dir", type=Path, default=EVAL_ROOT / "annotations")
@@ -53,10 +57,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_gpus", type=int, default=int(os.environ.get("NUM_GPUS", "2")))
     p.add_argument("--skip_existing", action="store_true")
     p.add_argument(
-        "--label_patch_px",
-        type=int,
-        default=int(os.environ.get("LABEL_PATCH_PX", "16")),
-        help="Image pixels per labeled grid cell (16=model patch, 64=coarse 16x16 grid on 1024).",
+        "--alpha_threshold",
+        type=float,
+        default=float(os.environ.get("ALPHA_THRESHOLD", "0.1")),
     )
     return p.parse_args()
 
@@ -69,12 +72,16 @@ def load_suite_tasks(suite: str, annotations_dir: Path, bench_root: Path):
     return load_tasks(suite, annotations_dir, bench_root)
 
 
-def alpha_output_paths(output_dir: Path, rel_score_path: Path, n_steps: int) -> List[Path]:
-    if rel_score_path.as_posix().startswith("multiturn/"):
-        return []
+def v4_output_paths(output_dir: Path, rel_score_path: Path, threshold: float) -> Dict[str, Path]:
     stem = rel_score_path.stem
     parent = rel_score_path.parent
-    return [output_dir / parent / f"{stem}_step{step}.png" for step in range(1, n_steps + 1)]
+    base = output_dir / parent
+    return {
+        "src": base / f"{stem}_src.png",
+        "edit": base / f"{stem}_edit.png",
+        "heatmap": base / f"{stem}_heatmap.png",
+        "alpha_low": base / f"{stem}_overlay.png",
+    }
 
 
 def process_tasks(
@@ -88,19 +95,19 @@ def process_tasks(
     skip_existing: bool,
     device: str,
     desc: str,
-    label_patch_px: int,
+    alpha_threshold: float,
 ) -> Dict[str, Dict]:
     manifest: Dict[str, Dict] = {}
+    step_label = f"step {num_steps}/{num_steps}"
+
     for task_key, item in tqdm(tasks, desc=desc):
         suite_name, sample_key = task_key.split(":", 1)
         if suite_name == "multiturn":
             continue
 
         rel_paths = expected_outputs(task_key, item)
-        out_paths = alpha_output_paths(output_dir, rel_paths[0], num_steps)
-        if not out_paths:
-            continue
-        if skip_existing and all(p.is_file() for p in out_paths):
+        paths = v4_output_paths(output_dir, rel_paths[0], alpha_threshold)
+        if skip_existing and all(p.is_file() for p in paths.values()):
             continue
 
         src_path = resolve_source_path(bench_root, item, task_key)
@@ -110,7 +117,7 @@ def process_tasks(
         task_seed = seed + int(sample_key.split(":")[-1]) if sample_key.split(":")[-1].isdigit() else seed
         image = Image.open(src_path).convert("RGB")
 
-        src_pil, alphas = capture_student_alphas(
+        src_pil, alphas, edit_pil = capture_student_alphas(
             model,
             image,
             item["prompt"],
@@ -120,29 +127,34 @@ def process_tasks(
             device,
             preprocess_image_for_student,
             pil_to_tensor,
+            return_edited=True,
+            tensor_to_pil_fn=tensor_to_pil,
         )
+        if not alphas:
+            raise RuntimeError(f"No alpha captured for {task_key}")
+        alpha_final = alphas[-1]
         img_w, img_h = src_pil.size
 
-        saved = []
-        for step_idx, alpha_tensor in enumerate(alphas, start=1):
-            out_path = out_paths[step_idx - 1]
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            vis = render_alpha_grid_blank(
-                img_w,
-                img_h,
-                alpha_tensor,
-                step_label=f"step {step_idx}/{num_steps}",
-                patch_image=label_patch_px,
-            )
-            vis.save(out_path)
-            saved.append(str(out_path))
+        for p in paths.values():
+            p.parent.mkdir(parents=True, exist_ok=True)
+
+        src_pil.save(paths["src"])
+        edit_pil.save(paths["edit"])
+        render_alpha_heatmap(img_w, img_h, alpha_final, step_label=step_label).save(paths["heatmap"])
+        render_src_alpha_low_overlay(
+            src_pil,
+            alpha_final,
+            threshold=alpha_threshold,
+            step_label=step_label,
+        ).save(paths["alpha_low"])
 
         manifest[task_key] = {
             "suite": suite_name,
             "key": sample_key,
             "source": str(src_path),
             "prompt": item.get("prompt"),
-            "outputs": saved,
+            "alpha_step_used": num_steps,
+            "outputs": {k: str(v) for k, v in paths.items()},
         }
     return manifest
 
@@ -165,7 +177,7 @@ def _worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) -> Non
         worker_cfg["skip_existing"],
         "cuda",
         desc=f"GPU {gpu_id}",
-        label_patch_px=worker_cfg["label_patch_px"],
+        alpha_threshold=worker_cfg["alpha_threshold"],
     )
     part = Path(worker_cfg["output_dir"]) / f"manifest.gpu{gpu_id}.json"
     part.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -197,7 +209,7 @@ def main() -> None:
         "guidance_scale": args.guidance_scale,
         "seed": args.seed,
         "skip_existing": args.skip_existing,
-        "label_patch_px": args.label_patch_px,
+        "alpha_threshold": args.alpha_threshold,
     }
 
     if len(buckets) == 1:
@@ -213,8 +225,8 @@ def main() -> None:
             args.seed,
             args.skip_existing,
             args.device,
-            desc="alpha labels",
-            label_patch_px=args.label_patch_px,
+            desc="alpha v4",
+            alpha_threshold=args.alpha_threshold,
         )
     else:
         ctx = mp.get_context("spawn")
@@ -233,7 +245,8 @@ def main() -> None:
 
     (args.output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"Saved alpha labels for {len(manifest)} tasks -> {args.output_dir}")
+    print(f"Saved v4 packs for {len(manifest)} tasks -> {args.output_dir}")
+    print("Per sample: *_src.png  *_edit.png  *_heatmap.png  *_overlay.png")
 
 
 if __name__ == "__main__":

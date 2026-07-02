@@ -25,9 +25,9 @@ if str(EDITFLOW_ROOT) not in sys.path:
     sys.path.insert(0, str(EDITFLOW_ROOT))
 
 from alpha_vis import capture_student_alphas, render_alpha_grid_blank  # noqa: E402
+from alpha_model_utils import build_alpha_vis_model  # noqa: E402
 from run_editflow_imgedit_infer import (  # noqa: E402
     build_klein_pipeline,
-    build_student_model,
     build_teacher_pipeline,
     expected_outputs,
     load_tasks,
@@ -196,7 +196,7 @@ def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) 
         runner = build_klein_pipeline(
             worker_cfg["model_path"], device, worker_cfg["cpu_offload"])
     else:
-        runner = build_student_model(
+        runner = build_alpha_vis_model(
             Path(worker_cfg["config"]),
             Path(worker_cfg["ckpt"]),
             device,
@@ -244,7 +244,7 @@ def run_parallel_inference(args, tasks, output_dir, num_steps, guidance_scale, g
         elif args.role == "klein":
             runner = build_klein_pipeline(args.model_path, device, args.cpu_offload)
         else:
-            runner = build_student_model(args.config, args.ckpt, device)
+            runner = build_alpha_vis_model(args.config, args.ckpt, device)
         return process_tasks(
             runner,
             args.role,
@@ -319,7 +319,7 @@ def main() -> None:
         elif args.role == "klein":
             runner = build_klein_pipeline(args.model_path, device, args.cpu_offload)
         else:
-            runner = build_student_model(args.config, args.ckpt, device)
+            runner = build_alpha_vis_model(args.config, args.ckpt, device)
         new_manifest = process_tasks(
             runner,
             args.role,

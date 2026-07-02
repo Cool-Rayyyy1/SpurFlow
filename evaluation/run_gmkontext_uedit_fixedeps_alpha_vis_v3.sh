@@ -11,7 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_zhangyunzhe}"
 EDITFLOW_DIR="${EDITFLOW_DIR:-${WORKSPACE_ROOT}/EditFlow}"
-RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_iter_5000}"
+RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_iter_8500}"
 
 export LABEL_PATCH_PX=64
 export OUTPUT_DIR="${OUTPUT_DIR:-${EDITFLOW_DIR}/evaluation/imgedit_bench/outputs/runs/${RUN_TAG}/alpha_vis_blank_v3}"

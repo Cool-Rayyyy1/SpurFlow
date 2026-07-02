@@ -5,7 +5,7 @@
 #   pred_delta ~ x0_tgt - x_ref
 #   student_u = path_epsilon - x_ref - pred_delta
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (matches train_flux_edit_fixedeps_data.sh).
-# Default ckpt: checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k/20260618_055623/iter_20000.pth
+# Default ckpt: checkpoints/.../20260618_055623/iter_38500.pth (latest.pth -> iter_38500)
 #
 # Do NOT use run_gmkontext_uedit_infer.sh for this checkpoint — that script defaults to
 # editflux_uedit_2nfe_k16_data.py (ArcFluxEditTransformer2DModel with proj_out_epsilon).
@@ -27,16 +27,18 @@ export CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps
 # The 20260618_055623 run was trained with this same formulation, so train/inference match.
 # Do NOT point this at the older 20260614_015130 run: that checkpoint was trained with the
 # previous (delta-epsilon) sign convention and is INCONSISTENT with the current inference code.
-export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k/20260618_055623/iter_20000.pth}"
-# Tag results by run date so the new epsilon-delta run is not mixed with the old delta-epsilon outputs.
-export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_20260618_iter_20000}"
+export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k/20260618_055623/iter_38500.pth}"
+export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_20260618_iter_38500}"
 # Match training ImageEdit(resize_mode='kontext'): bucket by source aspect ratio, bicubic resize.
 export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-kontext}"
+# Inference GPUs (student generation): 2 processes via mp.spawn, one model per GPU.
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+export NUM_GPUS="${NUM_GPUS:-2}"
 # 2-NFE student + guidance 3.5 (matches test_cfg distilled_guidance_scale). Keep scoring concurrency
 # modest to avoid GPT API 429s.
 export STUDENT_NFE="${STUDENT_NFE:-2}"
 export STUDENT_GUIDANCE="${STUDENT_GUIDANCE:-3.5}"
-export NUM_PROCESSES="${NUM_PROCESSES:-16}"
+export NUM_PROCESSES="${NUM_PROCESSES:-8}"
 # GPT scoring: gpt-4o into a separate folder so older gpt-4o-2024-11-20 scores stay intact.
 export OPENAI_SCORING_MODEL="${OPENAI_SCORING_MODEL:-gpt-4o}"
 export SCORES_SUBDIR="${SCORES_SUBDIR:-scores_gpt4o}"

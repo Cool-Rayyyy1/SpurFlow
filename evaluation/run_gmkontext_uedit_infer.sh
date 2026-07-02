@@ -8,6 +8,9 @@
 # For fixedeps (NO proj_out_epsilon), use:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
 #
+# For fixedeps split-stage (ArcFlowEditImitationSplitStage), use:
+#   bash evaluation/run_gmkontext_uedit_fixedeps_split_stage_infer.sh
+#
 # Teacher generation is skipped. Comparison panels use an existing teacher run
 # (default: 20260610_011516_iter_5000) plus this student output.
 #
@@ -70,16 +73,39 @@ resolve_ckpt() {
     echo "${CKPT}"
     return 0
   fi
-  local cand
+  local cand latest_iter=-1 latest_ckpt=""
+  shopt -s nullglob
   for cand in \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/latest.pth" \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/latest.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/model/${RUN_NAME}/latest.pth" \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/model/${RUN_NAME}/iter_8500.pth" \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_8500.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_8500.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_5000.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_5000.pth; do
     if [[ -f "${cand}" ]]; then
       echo "${cand}"
+      shopt -u nullglob
       return 0
     fi
   done
+  for cand in \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/model/${RUN_NAME}"/iter_*.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_*.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_*.pth; do
+    if [[ -f "${cand}" && "${cand}" =~ iter_([0-9]+)\.pth$ ]]; then
+      if [[ "${BASH_REMATCH[1]}" -gt "${latest_iter}" ]]; then
+        latest_iter="${BASH_REMATCH[1]}"
+        latest_ckpt="${cand}"
+      fi
+    fi
+  done
+  shopt -u nullglob
+  if [[ -n "${latest_ckpt}" && -f "${latest_ckpt}" ]]; then
+    echo "${latest_ckpt}"
+    return 0
+  fi
   return 1
 }
 

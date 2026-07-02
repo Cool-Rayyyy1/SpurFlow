@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# Alpha patch labels ONLY — blank grid + values, no edited images, no GPT scoring.
-#
-# Output layout:
-#   alpha_vis_only/basic/1082_step1.png
-#   alpha_vis_only/basic/1082_step2.png
-#   alpha_vis_only/uge/...
+# Alpha v4: 4 images per sample (src / edit / heatmap / overlay on src).
+# Output: .../alpha_vis_v4/{basic,uge}/<id>_src.png etc.
 #
 # Usage:
-#   bash evaluation/run_gmkontext_uedit_fixedeps_alpha_vis.sh
-#   SUITE=basic MAX_SAMPLES=8 bash evaluation/run_gmkontext_uedit_fixedeps_alpha_vis.sh
-#   FORCE=1 bash evaluation/run_gmkontext_uedit_fixedeps_alpha_vis.sh   # overwrite existing
+#   bash evaluation/run_gmkontext_uedit_fixedeps_alpha_vis_v4.sh
+#   SUITE=basic MAX_SAMPLES=4 bash evaluation/run_gmkontext_uedit_fixedeps_alpha_vis_v4.sh
 
 set -euo pipefail
 
@@ -41,9 +36,9 @@ STUDENT_GUIDANCE="${STUDENT_GUIDANCE:-3.5}"
 SUITE="${SUITE:-basic_uge}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 FORCE="${FORCE:-0}"
-LABEL_PATCH_PX="${LABEL_PATCH_PX:-16}"
+ALPHA_THRESHOLD="${ALPHA_THRESHOLD:-0.1}"
 
-OUTPUT_DIR="${OUTPUT_DIR:-${EVAL_DIR}/outputs/runs/${RUN_TAG}/alpha_vis_only}"
+OUTPUT_DIR="${OUTPUT_DIR:-${EVAL_DIR}/outputs/runs/${RUN_TAG}/alpha_vis_v4}"
 
 # shellcheck source=/dev/null
 source "${CONDA_ROOT}/etc/profile.d/conda.sh"
@@ -65,7 +60,7 @@ if [[ "${FORCE}" != "1" ]]; then
 fi
 
 cmd=(
-  python "${EVAL_DIR}/run_alpha_vis_bench.py"
+  python "${EVAL_DIR}/run_alpha_vis_bench_v4.py"
   --suite "${SUITE}"
   --bench_root "${IMGEDIT_BENCH_ROOT}"
   --output_dir "${OUTPUT_DIR}"
@@ -75,7 +70,7 @@ cmd=(
   --num_inference_steps "${STUDENT_NFE}"
   --guidance_scale "${STUDENT_GUIDANCE}"
   --num_gpus "${NUM_GPUS}"
-  --label_patch_px "${LABEL_PATCH_PX}"
+  --alpha_threshold "${ALPHA_THRESHOLD}"
   "${SKIP_FLAG[@]}"
 )
 if [[ -n "${MAX_SAMPLES}" ]]; then
@@ -84,6 +79,7 @@ fi
 
 echo "Running: ${cmd[*]}"
 echo "Output:  ${OUTPUT_DIR}"
+echo "Per sample: *_src.png  *_edit.png  *_heatmap.png  *_overlay.png"
 "${cmd[@]}"
 
-echo "Done. Alpha labels -> ${OUTPUT_DIR}"
+echo "Done. Alpha v4 -> ${OUTPUT_DIR}"
