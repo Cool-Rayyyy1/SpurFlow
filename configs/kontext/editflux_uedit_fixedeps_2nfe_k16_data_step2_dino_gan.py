@@ -1,15 +1,16 @@
-_base_ = ['./_ddp_train.py', './_data_trainval_data.py']
+_base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_step2_gan.sh`
-# Standard fixed-eps PIID (not split-stage rollout) + step-2 DINOv3 GAN on 2-NFE endpoint.
-# GAN fake: same 2-NFE rollout as forward_test. Real: edited_images -> DINOv3 Resize(224).
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_gan'
+# `train_flux_edit_fixedeps_data_step2_dino_gan.sh`
+# Standard fixed-eps PIID + step-2 TDM-style DINO feature GAN.
+# Fake: Kontext unpatchify + VAE decode -> shared global/local crops -> frozen DINOv3 features
+#       -> trainable conv head. Real: edited_images with the same crop specs.
+name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
-    type='LatentDiffusionImageEditStep2GAN',
+    type='LatentDiffusionImageEditStep2DinoFeatureGAN',
     vae=dict(
         type='PretrainedVAE',
         from_pretrained=kontext_model,
@@ -88,11 +89,26 @@ model = dict(
         denoising_mean_mode='U'),
     tie_teacher=True,
     discriminator=dict(
-        type='DINOv3PatchDiscriminator',
+        type='DinoFeatureDiscriminator',
         checkpoint_path=dinov3_model,
-        input_size=224,
-        global_weight=0.25,
-        patch_weight=1.0,
+        num_steps=2,
+        feature_layers=(23,),
+        global_input_size=224,
+        local_input_size=224,
+        num_global_crops=1,
+        num_local_crops=1,
+        global_crop_scale=(0.5, 1.0),
+        local_crop_scale=(0.125, 0.5),
+        crop_aspect_ratio=(0.75, 1.3333333333),
+        clamp_pixels=True,
+        step_conditioning=False,
+        head_num_blocks=3,
+        head_use_avgpool=False,
+        head_gradient_checkpointing=True,
+        head_norm_groups=32,
+        dense_output=False,
+        backbone_dtype='bf16',
+        head_dtype='fp32',
         freeze_backbone=True),
 )
 
@@ -107,7 +123,7 @@ train_cfg = dict(
     fixed_path_epsilon=True,
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
-    split_stage_gan_loss_weight=1.0,
+    split_stage_gan_loss_weight=0.001,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,
@@ -130,16 +146,28 @@ test_cfg = dict(
 
 optimizer = {
     'diffusion': dict(
-        type='AdamW8bit', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
         paramwise_cfg=dict(
             custom_keys={
                 'proj_out_loggamma': dict(lr_mult=0.1),
             }),
     ),
     'discriminator': dict(
-        type='AdamW', lr=1e-5, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=5e-5, betas=(0.0, 0.95), weight_decay=0.01,
     ),
 }
+
+# Shard diffusion/teacher; keep VAE + DINO discriminator replicated (frozen backbone + small head).
+fsdp_kwargs = dict(
+    wrap_frozen_modules=True,
+    ignore_frozen_parameters=False,
+    fsdp_modules=[
+        'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
+        'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
+    ],
+    exclude_keys=['vae', 'discriminator'],
+    tie_key_mappings=['teacher->diffusion', 'teacher->diffusion_ema'],
+)
 
 sample_eval = dict(
     type='EditFlowSampleImagesHook',

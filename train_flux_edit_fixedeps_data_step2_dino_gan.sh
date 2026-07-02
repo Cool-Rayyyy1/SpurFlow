@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# EditFlow fixed-eps PIID + step-2 DINOv3 GAN (3 proj heads, no epsilon head):
+# EditFlow fixed-eps PIID + step-2 TDM-style DINO feature GAN:
 #   Standard random-segment PIID (NOT split-stage rollout).
-#   GAN: after warmup, sample path_epsilon and run the same 2-NFE rollout as forward_test;
-#        hinge GAN on Kontext-decoded t=0 endpoint vs edited_images.
-#   GAN schedule: enabled from iter 0 by default (set STEP2_GAN_WARMUP_ITERS > 0 to delay).
-#   DINOv3: D(x) = 0.25*s_global + 1.0*mean(s_patch)  (same as split_stage_gan)
+#   Step-2 endpoint: Kontext VAE decode -> shared global/local DINO crops ->
+#   frozen DINOv3 intermediate features -> trainable conv head.
+#   Loss: logistic softplus (TDM reference), not hinge.
 #
-#   bash train_flux_edit_fixedeps_data_step2_gan.sh              # default: 2 GPUs
-#   bash train_flux_edit_fixedeps_data_step2_gan.sh 8
-#   GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_edit_fixedeps_data_step2_gan.sh 8
-#   TOTAL_ITERS=30000 bash train_flux_edit_fixedeps_data_step2_gan.sh
+#   Uses FSDP (configs/kontext/_fsdp_train.py) to shard diffusion/teacher.
+#   VAE + DINO discriminator stay replicated per GPU.
+#
+#   bash train_flux_edit_fixedeps_data_step2_dino_gan.sh              # default: 8 GPUs
+#   bash train_flux_edit_fixedeps_data_step2_dino_gan.sh 4
+#   GPU_IDS=0,1 bash train_flux_edit_fixedeps_data_step2_dino_gan.sh 2
 #
 # Pretrain / fresh:
-#   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_step2_gan.sh
-#   FRESH=1 bash train_flux_edit_fixedeps_data_step2_gan.sh
+#   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_step2_dino_gan.sh
+#   FRESH=1 bash train_flux_edit_fixedeps_data_step2_dino_gan.sh
 
 set -euo pipefail
 
@@ -25,7 +26,7 @@ if [[ $# -ge 1 && "${1}" =~ ^[0-9]+$ ]]; then
     NUM_GPUS="${1}"
     shift
 else
-    NUM_GPUS="${NUM_GPUS:-${NPROC:-2}}"
+    NUM_GPUS="${NUM_GPUS:-${NPROC:-8}}"
 fi
 
 if ! [[ "${NUM_GPUS}" =~ ^[0-9]+$ ]] || [[ "${NUM_GPUS}" -lt 1 ]]; then
@@ -43,17 +44,20 @@ EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
 KONTEXT_MODEL="${KONTEXT_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev}"
 DINOV3_MODEL="${DINOV3_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors}"
-GPU_IDS="${GPU_IDS:-0,1}"
+GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k/20260618_055623/iter_20000.pth}"
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
-STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-1.0}"
+STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.001}"
+DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
+DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
+DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-23}"
 # --------------------------------
 
-RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_step2_gan"
+RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_step2_dino_gan"
 
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 
@@ -84,7 +88,7 @@ if [[ "${FRESH}" != "1" ]]; then
         RESUME_FROM="${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth"
         RESUME_RUN_DIR="${RESUME_RUN_ID}"
         LOAD_FROM=""
-        echo "[resume] resuming step2-gan run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
+        echo "[resume] resuming step2-dino-gan run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
     fi
 fi
 if [[ -z "${LOAD_FROM}" && -z "${RESUME_FROM}" ]]; then
@@ -106,6 +110,10 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_ramp_iters=${STEP2_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${STEP2_GAN_WEIGHT}"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
+    "model.discriminator.num_steps=${NFE}"
+    "model.discriminator.global_input_size=${DINO_GLOBAL_SIZE}"
+    "model.discriminator.local_input_size=${DINO_LOCAL_SIZE}"
+    "model.discriminator.feature_layers=(${DINO_FEATURE_LAYERS},)"
     "checkpoint_config.interval=${CKPT_INTERVAL}"
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"
     "sample_eval.interval=${SAMPLE_INTERVAL}"
@@ -125,9 +133,9 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow fixed-eps step2 GAN DDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_warmup=${STEP2_GAN_WARMUP_ITERS}  gan_ramp=${STEP2_GAN_RAMP_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 TDM-DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  global=${DINO_GLOBAL_SIZE}  local=${DINO_LOCAL_SIZE}  layer=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
-    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_gan.py \
+    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_dino_gan.py \
     --launcher pytorch --diff_seed \
     --cfg-options "${CFG_OPTS[@]}"
