@@ -52,6 +52,7 @@ PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/gmkontext_uedit_fixedeps_k16_${NFE}n
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
 STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.001}"
+NUM_DECAY_ITERS="${NUM_DECAY_ITERS:-0}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
 DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-23}"
@@ -109,6 +110,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_warmup_iters=${STEP2_GAN_WARMUP_ITERS}"
     "train_cfg.split_stage_gan_ramp_iters=${STEP2_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${STEP2_GAN_WEIGHT}"
+    "train_cfg.num_decay_iters=${NUM_DECAY_ITERS}"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
     "model.discriminator.num_steps=${NFE}"
     "model.discriminator.global_input_size=${DINO_GLOBAL_SIZE}"
@@ -133,7 +135,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow step2 TDM-DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  global=${DINO_GLOBAL_SIZE}  local=${DINO_LOCAL_SIZE}  layer=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 TDM-DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  num_decay_iters=${NUM_DECAY_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  global=${DINO_GLOBAL_SIZE}  local=${DINO_LOCAL_SIZE}  layer=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_dino_gan.py \
