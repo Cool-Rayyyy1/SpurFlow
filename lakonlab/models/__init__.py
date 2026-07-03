@@ -9,4 +9,5 @@ from .latent_diffusion_image_edit_gan import (
     LatentDiffusionImageEditSplitStageGAN,
     LatentDiffusionImageEditStep2GAN,
     LatentDiffusionImageEditStep2DinoFeatureGAN,
+    LatentDiffusionImageEditSplitStageDinoFeatureGAN,
 )

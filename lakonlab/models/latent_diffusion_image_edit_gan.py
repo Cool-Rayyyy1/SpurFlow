@@ -224,3 +224,10 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
                 loss_scaler.scale(loss_diffusion).backward()
 
         return log_vars, bs
+
+
+@MODELS.register_module()
+class LatentDiffusionImageEditSplitStageDinoFeatureGAN(LatentDiffusionImageEditSplitStageGAN):
+    """Split-stage rollout PIID + TDM-style DINO feature GAN on step-2 endpoint."""
+
+    train_minibatch = LatentDiffusionImageEditStep2DinoFeatureGAN.train_minibatch
