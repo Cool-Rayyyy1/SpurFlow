@@ -123,7 +123,7 @@ train_cfg = dict(
     fixed_path_epsilon=True,
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
-    split_stage_gan_loss_weight=0.001,
+    split_stage_gan_loss_weight=0.05,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,
@@ -153,7 +153,7 @@ optimizer = {
             }),
     ),
     'discriminator': dict(
-        type='AdamW', lr=2e-4, betas=(0.0, 0.95), weight_decay=0.01,
+        type='AdamW', lr=5e-5, betas=(0.0, 0.95), weight_decay=0.01,
     ),
 }
 
