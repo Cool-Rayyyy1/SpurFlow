@@ -542,6 +542,203 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
 
 
 @MODULES.register_module()
+class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGAN):
+    """Split-stage GAN with independent step-1 / step-2 LoRA adapters on the student.
+
+    Step-1 ``pred`` uses the ``step1`` adapter; step-2 ``pred`` and the GAN rollout use
+    ``step2``. GAN generator loss therefore backpropagates only into step-2 LoRA (plus
+    shared trainable heads reached from the step-2 graph). Validation ``forward_test``
+    switches adapters per rollout step to match training.
+    """
+
+    LORA_STAGE_STEP1 = 'step1'
+    LORA_STAGE_STEP2 = 'step2'
+
+    @classmethod
+    def _lora_stage_for_rollout_step(cls, step_index: int) -> str:
+        return cls.LORA_STAGE_STEP1 if step_index == 0 else cls.LORA_STAGE_STEP2
+
+    def pred(self, x_t=None, t=None, **kwargs):
+        lora_stage = kwargs.pop('lora_stage', None)
+        denoising = self.denoising
+        if lora_stage is not None and getattr(denoising, 'dual_stage_lora', False):
+            denoising.set_lora_stage(lora_stage)
+        return super(ArcFlowEditImitationSplitStageGAN, self).pred(x_t, t, **kwargs)
+
+    def forward_train(
+            self,
+            x_0,
+            teacher=None,
+            teacher_kwargs=dict(),
+            running_status=None,
+            return_step2_latent=False,
+            **kwargs):
+        x_ref = kwargs.pop('x_ref', None)
+        if x_ref is None:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraGAN requires `x_ref` in kwargs.')
+
+        device = get_module_device(self)
+        num_batches = x_0.size(0)
+        seq_len = x_0.shape[2:].numel()
+        ndim = x_0.dim()
+        assert ndim in [4, 5], f'Invalid x_0 shape: {x_0.shape}. Expected 4D or 5D tensor.'
+
+        num_decay_iters = self.train_cfg.get('num_decay_iters', 0)
+        if num_decay_iters > 0:
+            teacher_ratio = 1 - min(running_status['iteration'], num_decay_iters) / num_decay_iters
+            log_vars = dict(teacher_ratio=teacher_ratio)
+        else:
+            teacher_ratio = 0.0
+            log_vars = dict()
+
+        base_segment_size, final_step_size = self._rollout_segment_sizes()
+        policy_eps = self.train_cfg.get('eps', 1e-4)
+        x_ref_scale_step2 = self.train_cfg.get('split_stage_step2_x_ref_scale', 1.0)
+        w_teacher = self.train_cfg.get('split_stage_teacher_loss_weight', 0.5)
+        gan_loss_scale = self._gan_loss_scale(running_status)
+        log_vars['gan_loss_scale'] = gan_loss_scale
+
+        path_epsilon = torch.randn_like(x_0)
+
+        raw_t_step1 = torch.ones(num_batches, dtype=torch.float32, device=device)
+        sigma_t_step1 = self.timestep_sampler.warp_t(raw_t_step1, seq_len=seq_len).reshape(
+            num_batches, *((ndim - 1) * [1]))
+        t_step1 = sigma_t_step1.flatten() * self.num_timesteps
+        x_t_step1 = path_epsilon
+
+        denoising_output_step1 = self.pred(
+            x_t_step1, t_step1, lora_stage=self.LORA_STAGE_STEP1, **kwargs)
+        policy_step1 = self.policy_class(
+            denoising_output_step1, x_t_step1, sigma_t_step1, x_ref=x_ref,
+            path_epsilon=path_epsilon, eps=policy_eps)
+
+        loss_step1, _, _ = self.piid_segment_momentum(
+            teacher, policy_step1, x_t_step1, raw_t_step1, sigma_t_step1,
+            teacher_ratio, base_segment_size, teacher_kwargs)
+
+        loss = loss_step1
+
+        raw_t_step2 = raw_t_step1 - base_segment_size
+        x_t_step2, sigma_t_step2, t_step2 = self.momentum_integration(
+            sigma_t_step1, x_t_step1, sigma_t_step1, raw_t_step2,
+            policy_step1, eps=policy_eps, seq_len=seq_len)
+
+        x_ref_step2 = x_ref * x_ref_scale_step2
+        denoising_output_step2 = self.pred(
+            x_t_step2, t_step2, lora_stage=self.LORA_STAGE_STEP2, **kwargs)
+        policy_step2 = self.policy_class(
+            denoising_output_step2, x_t_step2, sigma_t_step2, x_ref=x_ref_step2,
+            path_epsilon=path_epsilon, eps=policy_eps)
+
+        loss_step2_teacher, _, _ = self.piid_segment_momentum(
+            teacher, policy_step2, x_t_step2, raw_t_step2, sigma_t_step2,
+            teacher_ratio, final_step_size, teacher_kwargs)
+
+        loss = loss + w_teacher * loss_step2_teacher
+
+        step2_latent = None
+        if gan_loss_scale > 0:
+            raw_t_final = raw_t_step2 - final_step_size
+            x_t_gan_in = (
+                x_t_step2.detach()
+                if self.train_cfg.get('gan_grad_step2_only', True)
+                else x_t_step2)
+            step2_latent, _, _ = self.momentum_integration(
+                sigma_t_step2, x_t_gan_in, sigma_t_step2, raw_t_final,
+                policy_step2, eps=policy_eps, seq_len=seq_len)
+
+        log_vars.update(self.flow_loss.log_vars)
+        log_vars.update(
+            loss=float(loss.detach()),
+            loss_step1=float(loss_step1.detach()),
+            loss_step2_teacher=float(loss_step2_teacher.detach()),
+        )
+
+        if return_step2_latent:
+            return loss, log_vars, dict(step2_latent=step2_latent)
+        return loss, log_vars
+
+    def forward_test(
+            self, x_0=None, noise=None, guidance_scale=None,
+            test_cfg_override=dict(), show_pbar=False, **kwargs):
+        x_ref = kwargs.get('image_latents')
+        if x_ref is None:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraGAN inference requires '
+                '`image_latents` (source latents).')
+
+        import sys
+        import mmcv
+
+        x_t_src = torch.randn_like(x_0) if noise is None else noise
+        path_epsilon = x_t_src.clone()
+        num_batches = x_t_src.size(0)
+        seq_len = x_t_src.shape[2:].numel()
+        ori_dtype = x_t_src.dtype
+        device = x_t_src.device
+        x_t_src = x_t_src.float()
+        path_epsilon = path_epsilon.float()
+        ndim = x_t_src.dim()
+        assert ndim in [4, 5], f'Invalid x_t_src shape: {x_t_src.shape}. Expected 4D or 5D tensor.'
+
+        cfg = deepcopy(self.test_cfg)
+        cfg.update(test_cfg_override)
+
+        eps = cfg.get('eps', 1e-4)
+        nfe = cfg['nfe']
+        if nfe != 2:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraGAN expects nfe=2 at inference, '
+                f'got nfe={nfe}.')
+        base_segment_size, final_step_size = self._rollout_segment_sizes()
+        x_ref_scale_step2 = self._split_stage_step2_x_ref_scale(cfg)
+
+        raw_t_src = torch.ones((num_batches,), dtype=torch.float32, device=device)
+        sigma_t_src = self.timestep_sampler.warp_t(raw_t_src, seq_len=seq_len).reshape(
+            num_batches, *((ndim - 1) * [1]))
+        t_src = sigma_t_src.flatten() * self.num_timesteps
+
+        if show_pbar:
+            pbar = mmcv.ProgressBar(nfe)
+
+        for step_id in range(nfe):
+            is_final_step = step_id == nfe - 1
+            segment_size = base_segment_size if not is_final_step else final_step_size
+
+            raw_t_dst = raw_t_src - segment_size
+
+            denoising_output = self.pred(
+                x_t_src, t_src,
+                lora_stage=self._lora_stage_for_rollout_step(step_id),
+                **kwargs)
+            x_ref_policy = x_ref if step_id == 0 else x_ref * x_ref_scale_step2
+            policy = self.policy_class(
+                denoising_output, x_t_src, sigma_t_src, x_ref=x_ref_policy,
+                path_epsilon=path_epsilon, eps=eps)
+            if not is_final_step:
+                temperature = cfg.get('temperature', 1.0)
+                policy.temperature_(temperature)
+
+            x_t_dst, sigma_t_dst, t_dst = self.momentum_integration(
+                sigma_t_src, x_t_src, sigma_t_src, raw_t_dst,
+                policy, eps=eps, seq_len=seq_len)
+
+            x_t_src = x_t_dst
+            raw_t_src = raw_t_dst
+            sigma_t_src = sigma_t_dst
+            t_src = t_dst
+
+            if show_pbar:
+                pbar.update()
+
+        if show_pbar:
+            sys.stdout.write('\n')
+
+        return x_t_src.to(ori_dtype)
+
+
+@MODULES.register_module()
 class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
     """Standard PIID edit distillation with optional step-2 endpoint for DINOv3 GAN.
 

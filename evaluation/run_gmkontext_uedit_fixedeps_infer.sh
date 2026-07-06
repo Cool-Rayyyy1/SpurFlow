@@ -6,7 +6,7 @@
 #   student_u = path_epsilon - x_ref - pred_delta
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (matches train_flux_edit_fixedeps_data.sh).
 #
-# Default ckpt: step2_dino_gan iter_5500 (student EMA only at inference; DINO D is unused).
+# Default ckpt: step2_dino_gan iter_10000 (student EMA only at inference; DINO D is unused).
 # Uses editflux_uedit_fixedeps_2nfe_k16_data.py (ArcFlowEditImitation standard 2-NFE val_step),
 # which matches step2_dino_gan training validation (Step2GAN val_step -> same 2-NFE forward_test).
 #
@@ -27,8 +27,8 @@ EDITFLOW_DIR="${EDITFLOW_DIR:-${WORKSPACE_ROOT}/EditFlow}"
 export RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan}"
 export CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data.py}"
 # step2_dino_gan ckpt includes discriminator keys; init_model loads diffusion_ema only (strict=False).
-export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/model/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan/iter_5500.pth}"
-export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan_iter_5500}"
+export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/model/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan/model/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan/iter_10000.pth}"
+export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan_iter_10000}"
 # Match training ImageEdit(resize_mode='kontext'): bucket by source aspect ratio, bicubic resize.
 export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-kontext}"
 # Inference: 2 GPUs by default. CUDA_VISIBLE_DEVICES must expose at least NUM_GPUS devices.

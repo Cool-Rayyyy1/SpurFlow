@@ -258,6 +258,46 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 @MODULES.register_module()
 class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
 
+    LORA_STAGE_STEP1 = 'step1'
+    LORA_STAGE_STEP2 = 'step2'
+
+    def _set_lora_stage_active_only(self, stage: str) -> None:
+        """Switch active dual-stage adapter without toggling ``requires_grad``.
+
+        PEFT ``set_adapter`` flips grad flags on LoRA modules. Under FSDP those
+        parameters are not leaf tensors, so runtime adapter switching must only
+        update ``_active_adapter`` on each tuner layer.
+        """
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        for module in self.modules():
+            if isinstance(module, BaseTunerLayer):
+                module._active_adapter = [stage]
+
+    def _enable_all_dual_lora_grads(self) -> None:
+        """Keep both step adapters trainable before FSDP wraps the model."""
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        stages = {self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2}
+        for module in self.modules():
+            if not isinstance(module, BaseTunerLayer):
+                continue
+            for adapter_name in stages:
+                if adapter_name in module.lora_A:
+                    module.lora_A[adapter_name].requires_grad_(True)
+                if adapter_name in module.lora_B:
+                    module.lora_B[adapter_name].requires_grad_(True)
+
+    def set_lora_stage(self, stage: str) -> None:
+        """Activate one dual-stage LoRA adapter (``step1`` or ``step2``)."""
+        if not getattr(self, 'dual_stage_lora', False):
+            return
+        if stage not in (self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2):
+            raise ValueError(
+                f'Invalid lora stage {stage!r}; expected '
+                f'{self.LORA_STAGE_STEP1!r} or {self.LORA_STAGE_STEP2!r}.')
+        self._set_lora_stage_active_only(stage)
+
     def __init__(
             self,
             *args,
@@ -272,6 +312,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             freeze_exclude_autocast_dtype='float32',
             checkpointing=True,
             use_lora=False,
+            dual_stage_lora=False,
             lora_target_modules=None,
             lora_rank=16,
             lora_dropout=0.0,
@@ -294,6 +335,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         self.autocast_dtype = autocast_dtype
 
         self.use_lora = use_lora
+        self.dual_stage_lora = bool(dual_stage_lora)
         self.lora_target_modules = lora_target_modules
         self.lora_rank = lora_rank
         if self.use_lora:
@@ -304,7 +346,13 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
                 target_modules=lora_target_modules,
                 lora_dropout=lora_dropout,
             )
-            self.add_adapter(transformer_lora_config)
+            if self.dual_stage_lora:
+                for adapter_name in (self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2):
+                    self.add_adapter(transformer_lora_config, adapter_name=adapter_name)
+                self._enable_all_dual_lora_grads()
+                self._set_lora_stage_active_only(self.LORA_STAGE_STEP1)
+            else:
+                self.add_adapter(transformer_lora_config)
 
         if torch_dtype is not None:
             self.to(getattr(torch, torch_dtype))

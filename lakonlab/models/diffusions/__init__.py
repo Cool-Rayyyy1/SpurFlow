@@ -6,6 +6,7 @@ from .arcflow_edit import (
     ArcFlowEditImitation,
     ArcFlowEditImitationSplitStage,
     ArcFlowEditImitationSplitStageGAN,
+    ArcFlowEditImitationSplitStageDualLoraGAN,
     ArcFlowEditImitationStep2GAN,
 )
 from .arcflow_edit_new import ArcFlowEditNewImitation
@@ -16,6 +17,7 @@ __all__ = [
     'ContinuousTimeStepSampler', 'GaussianFlow', 'GMFlow',
     'ArcFlowImitation', 'ArcFlowImitationDataFree', 'ArcFlowEditImitation',
     'ArcFlowEditImitationSplitStage', 'ArcFlowEditImitationSplitStageGAN',
+    'ArcFlowEditImitationSplitStageDualLoraGAN',
     'ArcFlowEditImitationStep2GAN',
     'ArcFlowEditNewImitation', 'ArcFlowEditAlphaImitation',
     'ArcFlowEditTeacherInvEpsImitation',
