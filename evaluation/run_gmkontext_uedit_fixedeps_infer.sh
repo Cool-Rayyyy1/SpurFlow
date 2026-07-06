@@ -5,7 +5,10 @@
 #   pred_delta ~ x0_tgt - x_ref
 #   student_u = path_epsilon - x_ref - pred_delta
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (matches train_flux_edit_fixedeps_data.sh).
-# Default ckpt: checkpoints/.../20260618_055623/iter_38500.pth (latest.pth -> iter_38500)
+#
+# Default ckpt: step2_dino_gan iter_5500 (student EMA only at inference; DINO D is unused).
+# Uses editflux_uedit_fixedeps_2nfe_k16_data.py (ArcFlowEditImitation standard 2-NFE val_step),
+# which matches step2_dino_gan training validation (Step2GAN val_step -> same 2-NFE forward_test).
 #
 # Do NOT use run_gmkontext_uedit_infer.sh for this checkpoint — that script defaults to
 # editflux_uedit_2nfe_k16_data.py (ArcFluxEditTransformer2DModel with proj_out_epsilon).
@@ -13,6 +16,7 @@
 # Usage:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
 #   CKPT=/path/to/iter_6000.pth bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
+#   SUITE=basic MAX_SAMPLES=8 GEN_ONLY=1 bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
 
 set -euo pipefail
 
@@ -20,18 +24,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_zhangyunzhe}"
 EDITFLOW_DIR="${EDITFLOW_DIR:-${WORKSPACE_ROOT}/EditFlow}"
 
-export RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k}"
+export RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan}"
 export CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data.py}"
-# NOTE: current code implements the epsilon-delta residual velocity
-#   student_u = path_epsilon - x_ref - pred_delta   (== teacher u = noise - x0)
-# The 20260618_055623 run was trained with this same formulation, so train/inference match.
-# Do NOT point this at the older 20260614_015130 run: that checkpoint was trained with the
-# previous (delta-epsilon) sign convention and is INCONSISTENT with the current inference code.
-export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k/20260618_055623/iter_38500.pth}"
-export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_20260618_iter_38500}"
+# step2_dino_gan ckpt includes discriminator keys; init_model loads diffusion_ema only (strict=False).
+export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/model/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan/iter_5500.pth}"
+export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan_iter_5500}"
 # Match training ImageEdit(resize_mode='kontext'): bucket by source aspect ratio, bicubic resize.
 export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-kontext}"
-# Inference GPUs (student generation): 2 processes via mp.spawn, one model per GPU.
+# Inference: 2 GPUs by default. CUDA_VISIBLE_DEVICES must expose at least NUM_GPUS devices.
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export NUM_GPUS="${NUM_GPUS:-2}"
 # 2-NFE student + guidance 3.5 (matches test_cfg distilled_guidance_scale). Keep scoring concurrency

@@ -125,6 +125,7 @@ train_cfg = dict(
 test_cfg = dict(
     distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
+    split_stage_step2_x_ref_scale=1.0,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,

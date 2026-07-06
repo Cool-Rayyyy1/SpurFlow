@@ -5,7 +5,7 @@
 #   pred_delta ~ x0_tgt - x_ref
 #   student_u = path_epsilon - x_ref - pred_delta
 # Training uses a 2-step rollout with split-stage losses; inference is 2-NFE val_step with
-# step-2 policy x_ref scaled by split_stage_step2_x_ref_scale (default 0.5, matches train).
+# step-2 policy x_ref scaled by split_stage_step2_x_ref_scale (default 1.0, matches train).
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (matches train_flux_edit_fixedeps_data_split_stage.sh).
 # Default ckpt: checkpoints/.../split_stage/model/.../iter_8500.pth
 #

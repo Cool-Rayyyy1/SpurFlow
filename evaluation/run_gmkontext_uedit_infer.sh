@@ -18,6 +18,7 @@
 #   bash evaluation/run_gmkontext_uedit_infer.sh
 #   SUITE=basic MAX_SAMPLES=8 bash evaluation/run_gmkontext_uedit_infer.sh
 #   GEN_ONLY=1 bash evaluation/run_gmkontext_uedit_infer.sh   # skip GPT scoring
+#   SKIP_STUDENT_GEN=1 GEN_ONLY=1 bash ...                      # comparisons only (student already done)
 
 set -euo pipefail
 
@@ -53,6 +54,7 @@ SUITE="${SUITE:-all}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 GEN_ONLY="${GEN_ONLY:-0}"
 SCORE_ONLY="${SCORE_ONLY:-0}"
+SKIP_STUDENT_GEN="${SKIP_STUDENT_GEN:-0}"
 BUILD_COMPARISONS="${BUILD_COMPARISONS:-1}"
 CPU_OFFLOAD="${CPU_OFFLOAD:-0}"
 NUM_PROCESSES="${NUM_PROCESSES:-64}"
@@ -129,6 +131,7 @@ write_run_config() {
     echo "COMPARISONS:     ${COMPARISON_OUTPUT}"
     echo "BUILD_COMPARISONS:${BUILD_COMPARISONS}"
     echo "GEN_ONLY:        ${GEN_ONLY}"
+    echo "SKIP_STUDENT_GEN:${SKIP_STUDENT_GEN}"
     echo "NUM_PROCESSES:   ${NUM_PROCESSES}"
     echo "FORCE_SCORE:     ${FORCE_SCORE}"
     echo "OPENAI_SCORING_MODEL: ${OPENAI_SCORING_MODEL}"
@@ -237,7 +240,11 @@ write_run_config "started"
 
 if [[ "${SCORE_ONLY}" != "1" ]]; then
   echo "[gen] student ${RUN_NAME} (${STUDENT_NFE} NFE, guidance=${STUDENT_GUIDANCE})"
-  run_student_generation
+  if [[ "${SKIP_STUDENT_GEN}" != "1" ]]; then
+    run_student_generation
+  else
+    echo "[skip] SKIP_STUDENT_GEN=1 — reusing existing student outputs in ${STUDENT_OUTPUT}"
+  fi
   run_comparisons
 fi
 

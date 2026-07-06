@@ -7,7 +7,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 #   step-1 (t=1): PIID teacher loss only.
 #   step-2 (student step-1 endpoint): split_stage_teacher_loss_weight * PIID loss
 #       + split_stage_diffusion_loss_weight * direct flow loss (path_epsilon - x0_tgt).
-# Step-2 uses split_stage_step2_x_ref_scale * x_ref (default 0.5) in the residual
+# Step-2 uses split_stage_step2_x_ref_scale * x_ref (default 1.0) in the residual
 # velocity; step-2 gradients backpropagate into step-1.
 # split_stage_step2_warmup_iters linearly ramps step-2 loss from 0 (step-1 only).
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage'
@@ -106,7 +106,7 @@ train_cfg = dict(
     fixed_path_epsilon=True,
     split_stage_diffusion_loss_weight=0.5,
     split_stage_teacher_loss_weight=0.5,
-    split_stage_step2_x_ref_scale=0.5,
+    split_stage_step2_x_ref_scale=1.0,
     split_stage_step2_warmup_iters=2000,
     num_decay_iters=2000,
     window_substeps=3,
@@ -121,7 +121,7 @@ train_cfg = dict(
 test_cfg = dict(
     distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
-    split_stage_step2_x_ref_scale=0.5,
+    split_stage_step2_x_ref_scale=1.0,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,

@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -134,18 +136,54 @@ def build_panel(
     return canvas
 
 
+def _remove_path_if_exists(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.is_file() or path.is_symlink():
+        path.unlink()
+
+
+def save_image_atomic(image: Image.Image, path: Path, **save_kw) -> None:
+    """Write image via temp file + rename to avoid FileExistsError on some FS."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _remove_path_if_exists(path)
+    fd, tmp_name = tempfile.mkstemp(suffix=path.suffix, dir=path.parent)
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        image.save(tmp_path, **save_kw)
+        os.replace(tmp_path, path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
+
+
 def save_src_copy(src_path: Path, dst_path: Path) -> None:
     dst_path.parent.mkdir(parents=True, exist_ok=True)
     suffix = src_path.suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
+        _remove_path_if_exists(dst_path)
         shutil.copy2(src_path, dst_path)
         return
-    Image.open(src_path).convert("RGB").save(dst_path, quality=95)
+    save_image_atomic(Image.open(src_path).convert("RGB"), dst_path, quality=95)
 
 
 def save_png_copy(src_path: Path, dst_path: Path) -> None:
-    dst_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.open(src_path).convert("RGB").save(dst_path)
+    save_image_atomic(Image.open(src_path).convert("RGB"), dst_path)
+
+
+def comparison_outputs_complete(
+    grid_path: Path,
+    src_out: Path,
+    require_student: bool,
+    student_out: Path,
+) -> bool:
+    if not grid_path.is_file() or not src_out.is_file():
+        return False
+    if require_student and not student_out.is_file():
+        return False
+    return True
 
 
 def build_comparisons(args: argparse.Namespace) -> Dict[str, Dict]:
@@ -167,7 +205,9 @@ def build_comparisons(args: argparse.Namespace) -> Dict[str, Dict]:
         student_out = args.output_dir / suite_name / f"{sample_key}_student.png"
         prompt_out = args.output_dir / suite_name / f"{sample_key}_prompt.txt"
 
-        if args.skip_existing and grid_path.is_file() and src_out.is_file():
+        if args.skip_existing and comparison_outputs_complete(
+            grid_path, src_out, args.require_student, student_out
+        ):
             continue
 
         src_path = resolve_source_path(args.bench_root, item, task_key)
@@ -207,8 +247,7 @@ def build_comparisons(args: argparse.Namespace) -> Dict[str, Dict]:
             student_out.unlink()
 
         panel = build_panel(columns, prompt=prompt)
-        grid_path.parent.mkdir(parents=True, exist_ok=True)
-        panel.save(grid_path)
+        save_image_atomic(panel, grid_path)
 
         manifest[task_key] = {
             "suite": suite_name,

@@ -7,7 +7,7 @@
 #   - step-2 (student step-1 endpoint):
 #       split_stage_teacher_loss_weight * PIID loss
 #       + split_stage_diffusion_loss_weight * direct flow MSE (path_epsilon - x0_tgt)
-#       with x_ref scaled by split_stage_step2_x_ref_scale (default 0.5)
+#       with x_ref scaled by split_stage_step2_x_ref_scale (default 1.0)
 #   Step-2 gradients backpropagate into step-1. Defaults: 0.5 / 0.5 teacher/direct.
 #   SPLIT_STAGE_STEP2_WARMUP_ITERS (default 2000): ramp step-2 loss from 0; step-1 only first.
 #
@@ -53,7 +53,7 @@ RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 SPLIT_STAGE_DIFFUSION_WEIGHT="${SPLIT_STAGE_DIFFUSION_WEIGHT:-0.5}"
 SPLIT_STAGE_TEACHER_WEIGHT="${SPLIT_STAGE_TEACHER_WEIGHT:-0.5}"
-SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-0.5}"
+SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-1.0}"
 SPLIT_STAGE_STEP2_WARMUP_ITERS="${SPLIT_STAGE_STEP2_WARMUP_ITERS:-2000}"
 # --------------------------------
 
@@ -99,6 +99,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_diffusion_loss_weight=${SPLIT_STAGE_DIFFUSION_WEIGHT}"
     "train_cfg.split_stage_teacher_loss_weight=${SPLIT_STAGE_TEACHER_WEIGHT}"
     "train_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
+    "test_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
     "train_cfg.split_stage_step2_warmup_iters=${SPLIT_STAGE_STEP2_WARMUP_ITERS}"
     "checkpoint_config.interval=${CKPT_INTERVAL}"
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"

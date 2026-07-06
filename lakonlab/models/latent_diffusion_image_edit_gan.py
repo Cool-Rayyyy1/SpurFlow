@@ -97,7 +97,9 @@ class LatentDiffusionImageEditSplitStageGAN(LatentDiffusionImageEdit):
                     real_logits, fake_logits, loss_d)
             log_vars.update(d_log_vars)
 
-            # G step: freeze D params only; keep diffusion graph intact for checkpoint.
+            # G step: freeze D. Use one backward for PIID+GAN (required under FSDP;
+            # split backward frees flat-param storage after the first pass). GAN grad
+            # routing to step-2 only is handled by detach in the rollout forward.
             _set_requires_grad(self.discriminator, False)
             loss_g_gan = self.discriminator(fake_images=fake_images, gan_mode='generator')
             loss_generator = loss_diffusion + (w_gan * gan_scale) * loss_g_gan

@@ -3,6 +3,7 @@
 #   Standard random-segment PIID (NOT split-stage rollout).
 #   Step-2 endpoint: Kontext VAE decode -> shared global/local DINO crops ->
 #   frozen DINOv3 intermediate features -> trainable conv head.
+#   GAN grads update the shared student only through the final NFE step (gan_grad_step2_only).
 #   Loss: logistic softplus (TDM reference), not hinge.
 #
 #   Uses FSDP (configs/kontext/_fsdp_train.py) to shard diffusion/teacher.
@@ -52,6 +53,7 @@ PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/gmkontext_uedit_fixedeps_k16_${NFE}n
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
 STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.05}"
+GAN_GRAD_STEP2_ONLY="${GAN_GRAD_STEP2_ONLY:-true}"
 NUM_DECAY_ITERS="${NUM_DECAY_ITERS:-0}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
@@ -110,6 +112,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_warmup_iters=${STEP2_GAN_WARMUP_ITERS}"
     "train_cfg.split_stage_gan_ramp_iters=${STEP2_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${STEP2_GAN_WEIGHT}"
+    "train_cfg.gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}"
     "train_cfg.num_decay_iters=${NUM_DECAY_ITERS}"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
     "model.discriminator.num_steps=${NFE}"
@@ -135,7 +138,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow step2 TDM-DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  num_decay_iters=${NUM_DECAY_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  global=${DINO_GLOBAL_SIZE}  local=${DINO_LOCAL_SIZE}  layer=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 TDM-DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  num_decay_iters=${NUM_DECAY_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}  global=${DINO_GLOBAL_SIZE}  local=${DINO_LOCAL_SIZE}  layer=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_dino_gan.py \

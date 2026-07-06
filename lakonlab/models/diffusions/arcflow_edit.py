@@ -213,7 +213,7 @@ class ArcFlowEditImitationSplitStage(ArcFlowEditImitation):
       * step-1 (t=1 -> first knot): PIID teacher-alignment loss only.
       * step-2 (student step-1 endpoint -> t=0): PIID teacher loss plus a
         direct flow-matching loss against ``path_epsilon - x0_tgt``. Step-2
-        uses ``split_stage_step2_x_ref_scale * x_ref`` (default 0.5) inside
+        uses ``split_stage_step2_x_ref_scale * x_ref`` (default 1.0) inside
         the residual velocity / direct-flow target.
 
     Step-2 is chained from the differentiable student step-1 endpoint so
@@ -261,7 +261,7 @@ class ArcFlowEditImitationSplitStage(ArcFlowEditImitation):
     def _split_stage_step2_x_ref_scale(self, cfg):
         return cfg.get(
             'split_stage_step2_x_ref_scale',
-            self.train_cfg.get('split_stage_step2_x_ref_scale', 0.5))
+            self.train_cfg.get('split_stage_step2_x_ref_scale', 1.0))
 
     def forward_test(
             self, x_0=None, noise=None, guidance_scale=None,
@@ -518,8 +518,15 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         step2_latent = None
         if gan_loss_scale > 0:
             raw_t_final = raw_t_step2 - final_step_size
+            # Reuse PIID step-2 policy; integrate to t=0 for GAN decode (no second pred).
+            # With gan_grad_step2_only, detach the rollout state so GAN does not backprop
+            # into step-1 through the integration input (policy_step2 is shared with PIID).
+            x_t_gan_in = (
+                x_t_step2.detach()
+                if self.train_cfg.get('gan_grad_step2_only', True)
+                else x_t_step2)
             step2_latent, _, _ = self.momentum_integration(
-                sigma_t_step2, x_t_step2, sigma_t_step2, raw_t_final,
+                sigma_t_step2, x_t_gan_in, sigma_t_step2, raw_t_final,
                 policy_step2, eps=policy_eps, seq_len=seq_len)
 
         log_vars.update(self.flow_loss.log_vars)
@@ -540,14 +547,19 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
 
     Training loss follows ``ArcFlowEditImitation`` (random-segment PIID, not split-stage
     rollout). When ``return_step2_latent=True``, additionally runs the same 2-NFE rollout
-    as ``forward_test`` (path_epsilon at t=1 -> t=0) with gradients for GAN.
+    as ``forward_test`` (path_epsilon at t=1 -> t=0) for GAN. With ``gan_grad_step2_only``
+    (default True), intermediate rollout states are detached so GAN gradients update the
+    shared student weights only through the final NFE step.
     """
 
-    def _rollout_nfe_latent(self, x_ref, path_epsilon, kwargs):
+    def _rollout_nfe_latent(self, x_ref, path_epsilon, kwargs, grad_step2_only=None):
         device = path_epsilon.device
         num_batches = path_epsilon.size(0)
         seq_len = path_epsilon.shape[2:].numel()
         ndim = path_epsilon.dim()
+
+        if grad_step2_only is None:
+            grad_step2_only = self.train_cfg.get('gan_grad_step2_only', True)
 
         cfg_eps = self.train_cfg.get('eps', 1e-4)
         nfe = self.train_cfg['nfe']
@@ -577,6 +589,9 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
             x_t_dst, sigma_t_dst, t_dst = self.momentum_integration(
                 sigma_t_src, x_t_src, sigma_t_src, raw_t_dst,
                 policy, eps=cfg_eps, seq_len=seq_len)
+
+            if grad_step2_only and not is_final_step:
+                x_t_dst = x_t_dst.detach()
 
             x_t_src = x_t_dst
             raw_t_src = raw_t_dst

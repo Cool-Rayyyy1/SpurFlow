@@ -4,6 +4,7 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # Standard fixed-eps PIID + step-2 TDM-style DINO feature GAN.
 # Fake: Kontext unpatchify + VAE decode -> shared global/local crops -> frozen DINOv3 features
 #       -> trainable conv head. Real: edited_images with the same crop specs.
+# GAN grads flow only through the final NFE step (gan_grad_step2_only); student keeps one weight set.
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -124,6 +125,7 @@ train_cfg = dict(
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
     split_stage_gan_loss_weight=0.05,
+    gan_grad_step2_only=True,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,

@@ -109,6 +109,7 @@ CFG_OPTS=(
     "test_cfg.nfe=${NFE}"
     "train_cfg.split_stage_teacher_loss_weight=${SPLIT_STAGE_TEACHER_WEIGHT}"
     "train_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
+    "test_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
     "train_cfg.split_stage_gan_warmup_iters=${SPLIT_STAGE_GAN_WARMUP_ITERS}"
     "train_cfg.split_stage_gan_ramp_iters=${SPLIT_STAGE_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${SPLIT_STAGE_GAN_WEIGHT}"
