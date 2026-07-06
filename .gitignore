@@ -1,3 +1,10 @@
 /work_dirs/
 /checkpoints/
 /evaluation/imgedit_bench/outputs/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+# Python cache files
+__pycache__/
+*.py[cod]
