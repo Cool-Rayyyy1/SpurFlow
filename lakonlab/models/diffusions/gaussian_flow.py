@@ -87,19 +87,32 @@ class GaussianFlow(nn.Module):
         mean = 1 - std
         return x_0 * mean + noise * std, mean, std
 
+    @staticmethod
+    def _denoising_forward_dtype(denoising):
+        """Pick a stable activation dtype for denoising forward under FSDP."""
+        if hasattr(denoising, 'dtype'):
+            return denoising.dtype
+        if hasattr(denoising, 'x_embedder') and hasattr(denoising.x_embedder, 'weight'):
+            return denoising.x_embedder.weight.dtype
+        return next(denoising.parameters()).dtype
+
     def pred(self, x_t=None, t=None, **kwargs):
         ori_dtype = x_t.dtype
-        if hasattr(self.denoising, 'dtype'):
-            denoising_dtype = self.denoising.dtype
-        else:
-            denoising_dtype = next(self.denoising.parameters()).dtype
+        denoising_dtype = self._denoising_forward_dtype(self.denoising)
         x_t = x_t.to(denoising_dtype)
+        cast_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor) and value.is_floating_point():
+                cast_kwargs[key] = value.to(denoising_dtype)
+            else:
+                cast_kwargs[key] = value
         num_batches = x_t.size(0)
         if t.dim() == 0 or len(t) != num_batches:
             t = t.expand(num_batches)
         if self.flip_model_timesteps:
             t = self.num_timesteps - t
-        output = self.denoising(x_t, t, **kwargs)
+        t = t.to(denoising_dtype)
+        output = self.denoising(x_t, t, **cast_kwargs)
         if isinstance(output, dict):
             output = {k: v.to(ori_dtype) for k, v in output.items()}
         else:

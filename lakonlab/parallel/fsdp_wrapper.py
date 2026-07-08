@@ -150,6 +150,10 @@ def tie_fsdp_modules(tgt_module, src_module, recursive=True):
                     "Expected `FlatParameter` to be on the compute device "
                     f"{src_module.compute_device} but got {handle.flat_param.device}",
                 )
+            # Also run the target root FSDP forward so trainable params that
+            # live outside nested wraps (e.g. timestep LoRA) are unsharded.
+            # Diffusion should use ignore_frozen_parameters=True so tied frozen
+            # weights are not re-flattened here.
             output = old_forward(*args, **kwargs)
             return _post_forward(
                 src_module, handle, _post_forward_reshard, src_module, unused, output

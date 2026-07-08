@@ -3,8 +3,9 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # `train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh`
 # Split-stage rollout with separate step1/step2 LoRA adapters + step-2 DINO feature GAN.
 # GAN generator loss routes only into step2 LoRA (via dual adapter + gan_grad_step2_only).
-# Fresh run: Kontext transformer init only (no student ckpt). Val uses split forward_test
-# with per-step LoRA switching (train/val aligned).
+# Default launch loads fixed-eps pretrain (20260618_055623/iter_20000) via train script;
+# single LoRA + output heads are copied to step1/step2 at checkpoint load.
+# copied to step1/step2 at checkpoint load. GAN scale ramps 0->1 over 1000 iters.
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -119,7 +120,7 @@ model = dict(
 save_interval = 500
 must_save_interval = 1000
 eval_interval = 500
-sample_interval = 100
+sample_interval = 10
 work_dir = f'work_dirs/{name}'
 # yapf: disable
 train_cfg = dict(
@@ -129,7 +130,7 @@ train_cfg = dict(
     split_stage_teacher_loss_weight=0.5,
     split_stage_step2_x_ref_scale=1.0,
     split_stage_gan_warmup_iters=0,
-    split_stage_gan_ramp_iters=0,
+    split_stage_gan_ramp_iters=1000,
     split_stage_gan_loss_weight=0.05,
     gan_grad_step2_only=True,
     num_decay_iters=0,
@@ -168,10 +169,11 @@ optimizer = {
 
 fsdp_kwargs = dict(
     wrap_frozen_modules=True,
-    ignore_frozen_parameters=False,
+    ignore_frozen_parameters=True,
     fsdp_modules=[
         'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
         'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
+        'lakonlab.models.architecture.arcflow.arcflux_edit_new.EditOutputHeadBundle',
     ],
     exclude_keys=['vae', 'discriminator'],
     tie_key_mappings=['teacher->diffusion', 'teacher->diffusion_ema'],

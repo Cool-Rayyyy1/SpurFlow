@@ -139,7 +139,9 @@ def clone_params(tgt_module, src_module, recursive=True):
     for key, val in src_module._parameters.items():
         if (val is not None) \
                 and (val is not tgt_module._parameters[key]):
-            tgt_module._parameters[key] = val.clone()
+            # FSDP materialization requires nn.Parameter entries, not plain tensors.
+            tgt_module._parameters[key] = torch.nn.Parameter(
+                val.detach().clone(), requires_grad=False)
     for key, val in src_module._buffers.items():
         if val is not tgt_module._buffers[key]:
             tgt_module._buffers[key] = val.clone()

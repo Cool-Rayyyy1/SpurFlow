@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# EditFlow split-stage dual-LoRA + step-2 DINO feature GAN (fresh run):
+# EditFlow split-stage dual-LoRA + step-2 DINO feature GAN:
+#   Loads fixed-eps pretrain (default iter_20000); single LoRA + output heads are
+#   copied to both step1 and step2 modules at load time.
 #   step1 LoRA: first rollout segment PIID
 #   step2 LoRA: second segment PIID + GAN (GAN grad -> step2 LoRA only)
-#   DINO feature layers 29 & 39; FSDP; student gradient checkpointing on.
-#   No student ckpt load (Kontext transformer init only). Train/val share split
-#   forward_test with per-step LoRA switching.
+#   teacher_ratio stays 0 (num_decay_iters=0). GAN scale ramps 0->1 over 0-1000 iters.
 #
 #   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh
 #   GPU_IDS=0,1 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh 2
 #
-# Resume this run only (not pretrain):
-#   FRESH=0 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh
+# Pretrain / resume:
+#   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh
+#   FRESH=0 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh   # resume this run
+#   FRESH=1 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh   # skip pretrain load
 
 set -euo pipefail
 
@@ -34,7 +36,7 @@ fi
 NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
-SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-100}"
+SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
 TOTAL_ITERS="${TOTAL_ITERS:-25000}"
 EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
@@ -43,11 +45,13 @@ DINOV3_MODEL="${DINOV3_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl
 GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
-FRESH="${FRESH:-1}"
+FRESH="${FRESH:-0}"
+FIXEDEPS_RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k"
+PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/${FIXEDEPS_RUN_NAME}/20260618_055623/iter_20000.pth}"
 SPLIT_STAGE_TEACHER_WEIGHT="${SPLIT_STAGE_TEACHER_WEIGHT:-0.5}"
 SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-1.0}"
 SPLIT_STAGE_GAN_WARMUP_ITERS="${SPLIT_STAGE_GAN_WARMUP_ITERS:-0}"
-SPLIT_STAGE_GAN_RAMP_ITERS="${SPLIT_STAGE_GAN_RAMP_ITERS:-0}"
+SPLIT_STAGE_GAN_RAMP_ITERS="${SPLIT_STAGE_GAN_RAMP_ITERS:-1000}"
 SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.05}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
@@ -61,10 +65,30 @@ export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 export KONTEXT_MODEL_PATH="${KONTEXT_MODEL}"
 export PICO_BANANA_PATH="${DATA_ROOT}"
 
+_resolve_pretrain_ckpt() {
+    if [[ -n "${PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${PRETRAIN_CKPT}" ]]; then
+        echo "${PRETRAIN_CKPT}"
+        return
+    fi
+    if [[ -n "${PRETRAIN_CKPT}" ]]; then
+        echo "${PRETRAIN_CKPT}"
+    fi
+}
+
 CKPT_BASE="checkpoints/${RUN_NAME}"
 LOAD_FROM=""
 RESUME_FROM=""
 if [[ "${FRESH}" != "1" ]]; then
+    _PRETRAIN_CKPT="$(_resolve_pretrain_ckpt)"
+    if [[ -n "${_PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${_PRETRAIN_CKPT}" ]]; then
+        PRETRAIN_CKPT="${_PRETRAIN_CKPT}"
+        LOAD_FROM="${PRETRAIN_CKPT}"
+        echo "[pretrain] loading fixed-eps student weights from ${LOAD_FROM}"
+        echo "[pretrain] single LoRA + heads will be copied to dual step1/step2 at load"
+    else
+        echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT}); starting without pretrain" >&2
+    fi
+
     RESUME_RUN_ID="${RESUME_RUN_DIR:-${RUN_ID:-}}"
     if [[ -z "${RESUME_RUN_ID}" && -d "${PROJECT_DIR}/${CKPT_BASE}" ]]; then
         for _cand in $(ls -1dt "${PROJECT_DIR}/${CKPT_BASE}"/*/ 2>/dev/null); do
@@ -77,11 +101,12 @@ if [[ "${FRESH}" != "1" ]]; then
     if [[ -n "${RESUME_RUN_ID}" && -e "${PROJECT_DIR}/${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth" ]]; then
         RESUME_FROM="${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth"
         RESUME_RUN_DIR="${RESUME_RUN_ID}"
+        LOAD_FROM=""
         echo "[resume] resuming dual-lora split-stage-dino-gan run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
     fi
 fi
 if [[ -z "${LOAD_FROM}" && -z "${RESUME_FROM}" ]]; then
-    echo "[init] fresh run (FRESH=${FRESH}): Kontext transformer init only, dual LoRA from scratch"
+    echo "[init] no checkpoint to load (FRESH=${FRESH}); Kontext init + dual LoRA from scratch"
 fi
 
 export RUN_ID
@@ -113,6 +138,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_ramp_iters=${SPLIT_STAGE_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${SPLIT_STAGE_GAN_WEIGHT}"
     "train_cfg.gan_grad_step2_only=True"
+    "train_cfg.num_decay_iters=0"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
     "model.discriminator.num_steps=${NFE}"
     "model.discriminator.global_input_size=${DINO_GLOBAL_SIZE}"
@@ -139,7 +165,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow split-stage dual-LoRA DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_weight=${SPLIT_STAGE_GAN_WEIGHT}  sample_interval=${SAMPLE_INTERVAL}  dino_layers=${DINO_FEATURE_LAYERS}  x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}  fresh=${FRESH}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow split-stage dual-LoRA DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_warmup=${SPLIT_STAGE_GAN_WARMUP_ITERS}  gan_ramp=${SPLIT_STAGE_GAN_RAMP_ITERS}  gan_weight=${SPLIT_STAGE_GAN_WEIGHT}  teacher_ratio=0  sample_interval=${SAMPLE_INTERVAL}  dino_layers=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  fresh=${FRESH}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_split_stage_dual_lora_dino_gan.py \

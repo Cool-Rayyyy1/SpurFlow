@@ -50,6 +50,79 @@ def _is_redundant_non_ema_key(key: str) -> bool:
     return key.startswith('diffusion.') and not key.startswith('diffusion_ema.')
 
 
+_DUAL_STAGE_HEAD_NAMES = (
+    'norm_out',
+    'proj_out_deltax',
+    'proj_out_logweights',
+    'proj_out_loggamma',
+)
+
+
+def remap_single_heads_to_dual_stage_state_dict(
+        state_dict: Union[dict, OrderedDict],
+        target_stages: tuple = ('step1', 'step2')) -> Union[dict, OrderedDict]:
+    """Duplicate shared output-head weights into dual-stage step1/step2 head bundles."""
+    keys = list(state_dict.keys())
+    has_dual = any('.head_stages.step1.' in k for k in keys)
+    if has_dual:
+        return state_dict
+
+    metadata = getattr(state_dict, '_metadata', None)
+    new_sd = OrderedDict(state_dict)
+    keys_to_drop = []
+    for key, value in state_dict.items():
+        for head_name in _DUAL_STAGE_HEAD_NAMES:
+            needle = f'.denoising.{head_name}.'
+            if needle not in key:
+                continue
+            keys_to_drop.append(key)
+            for stage in target_stages:
+                new_key = key.replace(
+                    needle, f'.denoising.head_stages.{stage}.{head_name}.')
+                new_sd[new_key] = value
+            break
+    for key in keys_to_drop:
+        new_sd.pop(key, None)
+    if metadata is not None:
+        new_sd._metadata = metadata  # type: ignore
+    return new_sd
+
+
+def remap_single_lora_to_dual_stage_state_dict(
+        state_dict: Union[dict, OrderedDict],
+        source_adapter: str = 'default',
+        target_stages: tuple = ('step1', 'step2')) -> Union[dict, OrderedDict]:
+    """Duplicate single-adapter LoRA weights into dual-stage step1/step2 adapters.
+
+    Split-stage checkpoints store PEFT keys like ``...lora_A.default.weight``.
+    Dual-stage students expect ``...lora_A.step1.weight`` and ``...lora_A.step2.weight``.
+    """
+    keys = list(state_dict.keys())
+    has_dual = any(
+        f'.lora_A.{stage}.' in k or f'.lora_B.{stage}.' in k
+        for k in keys for stage in target_stages)
+    has_single = any(f'.lora_A.{source_adapter}.' in k for k in keys)
+    if has_dual or not has_single:
+        return state_dict
+
+    metadata = getattr(state_dict, '_metadata', None)
+    new_sd = OrderedDict(state_dict)
+    keys_to_drop = []
+    for key, value in state_dict.items():
+        for lora_side in ('lora_A', 'lora_B'):
+            needle = f'.{lora_side}.{source_adapter}.'
+            if needle not in key:
+                continue
+            keys_to_drop.append(key)
+            for stage in target_stages:
+                new_sd[key.replace(needle, f'.{lora_side}.{stage}.')] = value
+    for key in keys_to_drop:
+        new_sd.pop(key, None)
+    if metadata is not None:
+        new_sd._metadata = metadata  # type: ignore
+    return new_sd
+
+
 def _filter_checkpoint_key_warnings(
         missing_keys: List[str],
         unexpected_keys: List[str]) -> tuple[List[str], List[str]]:
@@ -370,6 +443,14 @@ def load_checkpoint(model: torch.nn.Module,
              for k, v in state_dict.items()})
     # Keep metadata in state_dict
     state_dict._metadata = metadata
+
+    state_dict = remap_single_lora_to_dual_stage_state_dict(state_dict)
+    state_dict = remap_single_heads_to_dual_stage_state_dict(state_dict)
+    if logger is not None and any(
+            f'.lora_A.{stage}.' in k or f'.head_stages.{stage}.' in k
+            for k in state_dict for stage in ('step1', 'step2')):
+        logger.info(
+            'Expanded single LoRA / head weights to dual-stage step1/step2 modules.')
 
     # load state_dict
     if isinstance(model, FSDP2Wrapper):  # FSDP2

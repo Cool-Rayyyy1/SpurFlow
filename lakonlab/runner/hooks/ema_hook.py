@@ -3,11 +3,13 @@
 import mmcv
 import torch
 
+from contextlib import nullcontext
 from copy import deepcopy
 try:
-    from torch.distributed.fsdp import FSDPModule
-except:
+    from torch.distributed.fsdp import FSDPModule, FullyShardedDataParallel
+except ImportError:
     FSDPModule = None
+    FullyShardedDataParallel = None
 from mmcv.parallel import is_module_wrapper
 from mmcv.runner import HOOKS
 from mmgen.core import ExponentialMovingAverageHook
@@ -88,6 +90,34 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
         ema_beta = min((1 - 1 / t) ** (gamma + 1), max_momentum)
         return dict(momentum=ema_beta)
 
+    @staticmethod
+    def _is_fsdp_module(module):
+        if FullyShardedDataParallel is not None and isinstance(
+                module, FullyShardedDataParallel):
+            return True
+        return FSDPModule is not None and isinstance(module, FSDPModule)
+
+    def _update_module_pair(
+            self, net, ema, runner, interp_cfg):
+        ema_params = dict(ema.named_parameters())
+        for name, p_net in net.named_parameters():
+            p_ema = ema_params.get(name)
+            if p_ema is None:
+                continue
+            if self.trainable_only and not p_net.requires_grad:
+                continue
+            if runner.iter < self.start_iter:
+                p_ema.data.copy_(p_net.data)
+            else:
+                p_ema.data.copy_(self.interp_func(
+                    p_net, p_ema, trainable=p_net.requires_grad, **interp_cfg))
+
+        ema_buffers = dict(ema.named_buffers())
+        for name, b_net in net.named_buffers():
+            b_ema = ema_buffers.get(name)
+            if b_ema is not None:
+                b_ema.data.copy_(b_net.data)
+
     def after_train_iter(self, runner):
         if not self.every_n_iters(runner, self.interval):
             return
@@ -105,23 +135,22 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
             for key in self.module_keys:
                 net = rgetattr(model, get_ori_key(key))
                 ema = rgetattr(model, key)
-                if FSDPModule is not None and isinstance(net, FSDPModule):  # Root parameters in EMA are unsharded after inference
-                    net_is_sharded = net._get_fsdp_state()._fsdp_param_group.is_sharded
-                    ema_is_sharded = ema._get_fsdp_state()._fsdp_param_group.is_sharded
-                    if net_is_sharded and not ema_is_sharded:
-                        ema.reshard()
-
-                for p_net, p_ema in zip(net.parameters(), ema.parameters()):
-                    if self.trainable_only and not p_net.requires_grad:
-                        continue
-                    if runner.iter < self.start_iter:
-                        p_ema.data.copy_(p_net.data)
-                    else:
-                        p_ema.data.copy_(self.interp_func(
-                            p_net, p_ema, trainable=p_net.requires_grad, **_interp_cfg))
-
-                for b_net, b_ema in zip(net.buffers(), ema.buffers()):
-                    b_ema.data.copy_(b_net.data)
+                net_fsdp = self._is_fsdp_module(net)
+                ema_fsdp = self._is_fsdp_module(ema)
+                if net_fsdp or ema_fsdp:
+                    assert FullyShardedDataParallel is not None
+                    net_ctx = (
+                        FullyShardedDataParallel.summon_full_params(
+                            net, writeback=False, rank0_only=False)
+                        if net_fsdp else nullcontext())
+                    ema_ctx = (
+                        FullyShardedDataParallel.summon_full_params(
+                            ema, writeback=True, rank0_only=False)
+                        if ema_fsdp else nullcontext())
+                    with net_ctx, ema_ctx:
+                        self._update_module_pair(net, ema, runner, _interp_cfg)
+                else:
+                    self._update_module_pair(net, ema, runner, _interp_cfg)
 
     def before_run(self, runner):
         model = runner.model.module if is_module_wrapper(

@@ -21,6 +21,28 @@ from .arc_output import ArcFlowEditNewModelOutput, ArcFlowEditNewEpsModelOutput
 from .arcflux import _ArcFluxTransformer2DModel
 
 
+class EditOutputHeadBundle(nn.Module):
+    """Per-stage output heads used by dual-stage LoRA students."""
+
+    def __init__(
+            self,
+            inner_dim,
+            num_gaussians,
+            num_gammas,
+            out_channels,
+            logweights_channels,
+            ada_norm_cls):
+        super().__init__()
+        self.norm_out = ada_norm_cls(
+            inner_dim, inner_dim, elementwise_affine=False, eps=1e-6)
+        self.proj_out_deltax = nn.Linear(
+            inner_dim, num_gaussians * out_channels)
+        self.proj_out_logweights = nn.Linear(
+            inner_dim, num_gaussians * logweights_channels)
+        self.proj_out_loggamma = nn.Linear(
+            inner_dim, num_gammas * logweights_channels)
+
+
 class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 
     def __init__(self, *args, **kwargs):
@@ -80,13 +102,15 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
             for _ in range(num_single_layers)
         ])
 
-        self.norm_out = AdaLayerNormContinuous(
-            self.inner_dim, self.inner_dim, elementwise_affine=False, eps=1e-6)
-        self.proj_out_deltax = nn.Linear(self.inner_dim, self.num_gaussians * self.out_channels)
-        self.proj_out_logweights = nn.Linear(
-            self.inner_dim, self.num_gaussians * self.logweights_channels)
-        self.proj_out_loggamma = nn.Linear(
-            self.inner_dim, self.num_gammas * self.logweights_channels)
+        self.dual_stage_heads = kwargs.pop('dual_stage_heads', False)
+        if self.dual_stage_heads:
+            self.head_stages = nn.ModuleDict({
+                self.LORA_STAGE_STEP1: self._make_head_bundle(AdaLayerNormContinuous),
+                self.LORA_STAGE_STEP2: self._make_head_bundle(AdaLayerNormContinuous),
+            })
+            self._active_head_stage = self.LORA_STAGE_STEP1
+        else:
+            self._install_shared_heads(AdaLayerNormContinuous)
 
         self.predict_path_epsilon = kwargs.pop('predict_path_epsilon', False)
         if self.predict_path_epsilon:
@@ -94,9 +118,36 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 
         self.gradient_checkpointing = False
 
-    def _init_proj_out_deltax(self):
+    LORA_STAGE_STEP1 = 'step1'
+    LORA_STAGE_STEP2 = 'step2'
+
+    def _make_head_bundle(self, ada_norm_cls):
+        return EditOutputHeadBundle(
+            self.inner_dim,
+            self.num_gaussians,
+            self.num_gammas,
+            self.out_channels,
+            self.logweights_channels,
+            ada_norm_cls,
+        )
+
+    def _install_shared_heads(self, ada_norm_cls):
+        self.norm_out = ada_norm_cls(
+            self.inner_dim, self.inner_dim, elementwise_affine=False, eps=1e-6)
+        self.proj_out_deltax = nn.Linear(self.inner_dim, self.num_gaussians * self.out_channels)
+        self.proj_out_logweights = nn.Linear(
+            self.inner_dim, self.num_gaussians * self.logweights_channels)
+        self.proj_out_loggamma = nn.Linear(
+            self.inner_dim, self.num_gammas * self.logweights_channels)
+
+    def _active_heads(self):
+        if getattr(self, 'dual_stage_heads', False):
+            return self.head_stages[self._active_head_stage]
+        return self
+
+    def _init_proj_out_deltax_layer(self, layer):
         deltax_init = getattr(self, 'deltax_init', 'zero')
-        layer = self.proj_out_deltax.to_empty(device='cpu')
+        layer = layer.to_empty(device='cpu')
         if deltax_init == 'kaiming':
             nn.init.kaiming_uniform_(layer.weight, a=math.sqrt(5))
             bound = 1 / math.sqrt(self.inner_dim)
@@ -111,13 +162,11 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
             raise ValueError(
                 f'Invalid deltax_init={deltax_init!r}. Supported: "zero", "kaiming".')
 
-    def init_weights(self):
-        self._init_proj_out_deltax()
-        constant_init(self.proj_out_logweights.to_empty(device='cpu'), val=0)
-
-        constant_init(self.proj_out_loggamma.to_empty(device='cpu'), val=0)
-        if getattr(self, 'predict_path_epsilon', False):
-            constant_init(self.proj_out_epsilon.to_empty(device='cpu'), val=0)
+    def _init_head_bundle(self, bundle):
+        bundle.norm_out.to_empty(device='cpu')
+        self._init_proj_out_deltax_layer(bundle.proj_out_deltax)
+        constant_init(bundle.proj_out_logweights.to_empty(device='cpu'), val=0)
+        constant_init(bundle.proj_out_loggamma.to_empty(device='cpu'), val=0)
         min_gamma = 0.2
         max_gamma = 4.0
         target_gammas = torch.logspace(
@@ -126,7 +175,40 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
         if self.logweights_channels > 1:
             target_log_gammas = target_log_gammas.unsqueeze(1).repeat(
                 1, self.logweights_channels).flatten()
-        self.proj_out_loggamma.bias.data.copy_(target_log_gammas)
+        bundle.proj_out_loggamma.bias.data.copy_(target_log_gammas)
+
+    def _copy_head_bundle(self, src_stage: str, dst_stage: str) -> None:
+        src = self.head_stages[src_stage]
+        dst = self.head_stages[dst_stage]
+        dst.load_state_dict(src.state_dict(), assign=True)
+
+    def _init_proj_out_deltax(self):
+        if getattr(self, 'dual_stage_heads', False):
+            self._init_head_bundle(self.head_stages[self.LORA_STAGE_STEP1])
+            self._copy_head_bundle(self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2)
+            return
+        self._init_proj_out_deltax_layer(self.proj_out_deltax)
+
+    def init_weights(self):
+        if getattr(self, 'dual_stage_heads', False):
+            self._init_head_bundle(self.head_stages[self.LORA_STAGE_STEP1])
+            self._init_head_bundle(self.head_stages[self.LORA_STAGE_STEP2])
+            self._copy_head_bundle(self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2)
+        else:
+            self._init_proj_out_deltax()
+            constant_init(self.proj_out_logweights.to_empty(device='cpu'), val=0)
+            constant_init(self.proj_out_loggamma.to_empty(device='cpu'), val=0)
+            min_gamma = 0.2
+            max_gamma = 4.0
+            target_gammas = torch.logspace(
+                math.log10(min_gamma), math.log10(max_gamma), self.num_gammas, base=10)
+            target_log_gammas = torch.log(target_gammas)
+            if self.logweights_channels > 1:
+                target_log_gammas = target_log_gammas.unsqueeze(1).repeat(
+                    1, self.logweights_channels).flatten()
+            self.proj_out_loggamma.bias.data.copy_(target_log_gammas)
+        if getattr(self, 'predict_path_epsilon', False):
+            constant_init(self.proj_out_epsilon.to_empty(device='cpu'), val=0)
 
     def forward(
             self,
@@ -152,11 +234,16 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
         else:
             assert joint_attention_kwargs is None or joint_attention_kwargs.get('scale', None) is None
 
-        hidden_states = self.x_embedder(hidden_states)
+        embed_dtype = self.x_embedder.weight.dtype
+        hidden_states = self.x_embedder(hidden_states.to(embed_dtype))
 
-        timestep = timestep.to(hidden_states.dtype) * 1000
+        timestep = timestep.to(embed_dtype) * 1000
         if guidance is not None:
-            guidance = guidance.to(hidden_states.dtype) * 1000
+            guidance = guidance.to(embed_dtype) * 1000
+        if pooled_projections is not None:
+            pooled_projections = pooled_projections.to(embed_dtype)
+        if encoder_hidden_states is not None:
+            encoder_hidden_states = encoder_hidden_states.to(embed_dtype)
 
         temb = (
             self.time_text_embed(timestep, pooled_projections)
@@ -167,7 +254,7 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 
         ids = torch.cat((txt_ids, img_ids), dim=0)
         image_rotary_emb = self.pos_embed(ids)
-        image_rotary_emb = tuple([x.to(hidden_states.dtype) for x in image_rotary_emb])
+        image_rotary_emb = tuple([x.to(embed_dtype) for x in image_rotary_emb])
 
         if joint_attention_kwargs is not None and 'ip_adapter_image_embeds' in joint_attention_kwargs:
             ip_adapter_image_embeds = joint_attention_kwargs.pop('ip_adapter_image_embeds')
@@ -230,14 +317,15 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
                     + controlnet_single_block_samples[index_block // interval_control]
                 )
 
-        hidden_states = self.norm_out(hidden_states, temb)
+        hidden_states = self._active_heads().norm_out(hidden_states, temb)
 
         bs, seq_len, _ = hidden_states.size()
-        out_deltax = self.proj_out_deltax(hidden_states).reshape(
+        heads = self._active_heads()
+        out_deltax = heads.proj_out_deltax(hidden_states).reshape(
             bs, seq_len, self.num_gaussians, self.out_channels)
-        out_logweights = self.proj_out_logweights(hidden_states).reshape(
+        out_logweights = heads.proj_out_logweights(hidden_states).reshape(
             bs, seq_len, self.num_gaussians, self.logweights_channels).log_softmax(dim=-2)
-        out_log_gammas = self.proj_out_loggamma(hidden_states).reshape(
+        out_log_gammas = heads.proj_out_loggamma(hidden_states).reshape(
             bs, seq_len, self.num_gammas, self.logweights_channels)
 
         if USE_PEFT_BACKEND:
@@ -289,7 +377,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
                     module.lora_B[adapter_name].requires_grad_(True)
 
     def set_lora_stage(self, stage: str) -> None:
-        """Activate one dual-stage LoRA adapter (``step1`` or ``step2``)."""
+        """Activate one dual-stage LoRA adapter and matching output heads."""
         if not getattr(self, 'dual_stage_lora', False):
             return
         if stage not in (self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2):
@@ -297,6 +385,8 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
                 f'Invalid lora stage {stage!r}; expected '
                 f'{self.LORA_STAGE_STEP1!r} or {self.LORA_STAGE_STEP2!r}.')
         self._set_lora_stage_active_only(stage)
+        if getattr(self, 'dual_stage_heads', False):
+            self._active_head_stage = stage
 
     def __init__(
             self,
@@ -323,8 +413,13 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         self.inherit_proj_out_deltax = inherit_proj_out_deltax
         self.deltax_init = deltax_init
         self.predict_path_epsilon = predict_path_epsilon
+        self.dual_stage_lora = bool(dual_stage_lora)
         with init_empty_weights():
-            super().__init__(*args, predict_path_epsilon=predict_path_epsilon, **kwargs)
+            super().__init__(
+                *args,
+                predict_path_epsilon=predict_path_epsilon,
+                dual_stage_heads=self.dual_stage_lora,
+                **kwargs)
         self.patch_size = patch_size
         assert self.patch_size * self.patch_size == self.logweights_channels
 
@@ -335,7 +430,6 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         self.autocast_dtype = autocast_dtype
 
         self.use_lora = use_lora
-        self.dual_stage_lora = bool(dual_stage_lora)
         self.lora_target_modules = lora_target_modules
         self.lora_rank = lora_rank
         if self.use_lora:
@@ -368,6 +462,31 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         if checkpointing:
             self.enable_gradient_checkpointing()
 
+    def _remap_state_dict_for_dual_heads(self, state_dict):
+        if not getattr(self, 'dual_stage_heads', False):
+            return state_dict
+        head_names = (
+            'norm_out',
+            'proj_out_deltax',
+            'proj_out_logweights',
+            'proj_out_loggamma',
+        )
+        remapped = dict(state_dict)
+        for head_name in head_names:
+            head_keys = [
+                key for key in state_dict
+                if key == head_name or key.startswith(f'{head_name}.')
+            ]
+            if not head_keys:
+                continue
+            for stage in (self.LORA_STAGE_STEP1, self.LORA_STAGE_STEP2):
+                for key in head_keys:
+                    suffix = key[len(head_name):]
+                    remapped[f'head_stages.{stage}.{head_name}{suffix}'] = state_dict[key]
+            for key in head_keys:
+                remapped.pop(key, None)
+        return remapped
+
     def init_weights(self, pretrained=None, pretrained_adapter=None):
         super().init_weights()
         if pretrained is not None:
@@ -395,6 +514,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             else:
                 state_dict.pop('proj_out.weight', None)
                 state_dict.pop('proj_out.bias', None)
+            state_dict = self._remap_state_dict_for_dual_heads(state_dict)
             if pretrained_adapter is not None:
                 adapter_state_dict = _load_checkpoint(
                     pretrained_adapter, map_location='cpu', logger=logger)
@@ -483,10 +603,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             **kwargs):
         hidden_states = self.patchify(hidden_states)
         bs, c, h, w = hidden_states.size()
-        if self.autocast_dtype is not None:
-            dtype = getattr(torch, self.autocast_dtype)
-        else:
-            dtype = hidden_states.dtype
+        dtype = self.x_embedder.weight.dtype
         device = hidden_states.device
         hidden_states = hidden_states.reshape(bs, c, h * w).permute(0, 2, 1)
         target_seq_len = hidden_states.size(1)
