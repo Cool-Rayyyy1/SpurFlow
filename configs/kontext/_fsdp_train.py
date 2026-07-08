@@ -47,7 +47,6 @@ fsdp_kwargs = dict(
     fsdp_modules=[
         'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
         'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
-        'lakonlab.models.architecture.arcflow.arcflux_edit_new.EditOutputHeadBundle',
     ],
     exclude_keys=['vae'],
     tie_key_mappings=['teacher->diffusion', 'teacher->diffusion_ema'],
