@@ -1,28 +1,25 @@
-_base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
+_base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_split_stage_gan.sh`
-# Resume fixed-eps pretrain, then split-stage rollout with step-2 DINOv3 GAN.
-# Step-1 / step-2 PIID are full weight from iter 0. GAN is on from iter 0 by default
-# (override split_stage_gan_warmup_iters / split_stage_gan_ramp_iters to delay or ramp).
-# Fake: Kontext unpatchify + VAE decode, then DINOv3 Resize. Real: edited_images + Resize.
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_gan'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
-kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+# `train_flux_edit_fixedeps_data_qwen.sh` -> gmqwen_uedit_fixedeps_k16_2nfe_pico400k
+# Residual parameterization: pred_delta ~ x0_tgt - x_ref,
+# student_u = path_epsilon - x_ref - pred_delta, teacher_u = path_epsilon - x0_tgt.
+name = 'gmqwen_uedit_fixedeps_k16_2nfe_pico400k'
+qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
-    type='LatentDiffusionImageEditSplitStageGAN',
+    type='LatentDiffusionQwenImageEdit',
     vae=dict(
-        type='PretrainedVAE',
-        from_pretrained=kontext_model,
+        type='PretrainedVAEQwenImage',
+        from_pretrained=qwen_model,
         subfolder='vae',
         freeze=True,
         torch_dtype='bfloat16'),
     diffusion=dict(
-        type='ArcFlowEditImitationSplitStageGAN',
+        type='ArcFlowEditImitation',
         policy_type='ArcFlowEdit',
         denoising=dict(
-            type='ArcFluxEditNewTransformer2DModel',
+            type='ArcQwenEditImageTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
@@ -33,29 +30,30 @@ model = dict(
                 'lora'],
             inherit_proj_out_deltax=False,
             deltax_init='kaiming',
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             num_gaussians=16,
             logweights_channels=4,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16',
-            checkpointing=False,
+            checkpointing=True,
             use_lora=True,
             lora_target_modules=[
-                'proj_mlp',
-                'proj_out',
-                'ff.net.0.proj',
-                'ff.net.2',
-                'ff_context.net.0.proj',
-                'ff_context.net.2',
+                'img_mlp.net.0.proj',
+                'img_mlp.net.2',
                 'timestep_embedder.linear_1',
-                'timestep_embedder.linear_2'],
+                'timestep_embedder.linear_2'
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.0.proj' for i in range(59)
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.2' for i in range(59)
+            ],
             lora_dropout=0.05,
             lora_rank=256),
         flow_loss=dict(
@@ -73,29 +71,25 @@ model = dict(
     teacher=dict(
         type='GaussianFlow',
         denoising=dict(
-            type='FluxTransformer2DModel',
+            type='QwenImageEditTransformer2DModel',
             patch_size=2,
             freeze=True,
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            # HF config reports out_channels=16 with internal patch_size=2 (proj_out=64).
+            # Our wrapper does external patchify and builds the DiT with patch_size=1, so
+            # out_channels must be the packed width (== in_channels == 64).
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16'),
         num_timesteps=1,
         denoising_mean_mode='U'),
     tie_teacher=True,
-    discriminator=dict(
-        type='DINOv3PatchDiscriminator',
-        checkpoint_path=dinov3_model,
-        input_size=224,
-        global_weight=0.25,
-        patch_weight=1.0,
-        freeze_backbone=True),
 )
 
 save_interval = 500
@@ -107,45 +101,22 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    split_stage_diffusion_loss_weight=0.5,
-    split_stage_teacher_loss_weight=0.5,
-    split_stage_step2_x_ref_scale=1.0,
-    split_stage_gan_warmup_iters=0,
-    split_stage_gan_ramp_iters=0,
-    split_stage_gan_loss_weight=1.0,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,
     num_intermediate_states=4,
-    distilled_guidance_scale=3.5,
-    teacher_distilled_guidance_scale=3.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
 )
 test_cfg = dict(
-    distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
-    split_stage_step2_x_ref_scale=1.0,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
     latent_size=(16, 128, 128),
 )
 # yapf: enable
-
-optimizer = {
-    'diffusion': dict(
-        type='AdamW', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
-        paramwise_cfg=dict(
-            custom_keys={
-                'proj_out_loggamma': dict(lr_mult=0.1),
-            }),
-    ),
-    'discriminator': dict(
-        type='AdamW', lr=1e-5, betas=(0.9, 0.95), weight_decay=0.0,
-    ),
-}
 
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
@@ -160,8 +131,8 @@ sample_eval = dict(
 
 data = dict(
     workers_per_gpu=1,
-    train=dict(resize_mode='kontext'),
-    val=dict(resize_mode='kontext'),
+    train=dict(resize_mode='qwen'),
+    val=dict(resize_mode='qwen'),
     train_dataloader=dict(samples_per_gpu=1),
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
@@ -175,7 +146,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 25000
+total_iters = 50000
 log_config = dict(
     interval=1,
     hooks=[
@@ -196,5 +167,5 @@ custom_hooks = [
 ]
 
 load_from = None
-resume_from = None
+resume_from = f'checkpoints/{name}/latest.pth'
 workflow = [('train', save_interval)]

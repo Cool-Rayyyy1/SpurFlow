@@ -210,7 +210,11 @@ class EditFlowSampleImagesHook(Hook):
         rank, world_size = get_dist_info()
         if world_size > 1:
             dist.barrier()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         self._sample_and_save(runner, rank)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         if world_size > 1:
             dist.barrier()
 

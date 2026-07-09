@@ -3,7 +3,7 @@
 #   Loads fixed-eps pretrain (default iter_20000); single LoRA + output heads are
 #   copied to both step1 and step2 modules at load time.
 #   step1 LoRA: first rollout segment PIID
-#   step2 LoRA: second segment PIID + GAN (GAN grad -> step2 LoRA only)
+#   step2 LoRA: second segment PIID + direct flow MSE + GAN (GAN grad -> step2 LoRA only)
 #   teacher_ratio stays 0 (num_decay_iters=0). GAN scale ramps 0->1 over 0-1000 iters.
 #
 #   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh
@@ -48,11 +48,12 @@ RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 FIXEDEPS_RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/${FIXEDEPS_RUN_NAME}/20260618_055623/iter_20000.pth}"
+SPLIT_STAGE_DIFFUSION_WEIGHT="${SPLIT_STAGE_DIFFUSION_WEIGHT:-0.5}"
 SPLIT_STAGE_TEACHER_WEIGHT="${SPLIT_STAGE_TEACHER_WEIGHT:-0.5}"
 SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-1.0}"
 SPLIT_STAGE_GAN_WARMUP_ITERS="${SPLIT_STAGE_GAN_WARMUP_ITERS:-0}"
 SPLIT_STAGE_GAN_RAMP_ITERS="${SPLIT_STAGE_GAN_RAMP_ITERS:-1000}"
-SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.05}"
+SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.01}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
 DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-17,23}"  # ViT-L has blocks 0-23 only
@@ -131,6 +132,7 @@ CFG_OPTS=(
     "checkpoint_config.out_dir=checkpoints/${RUN_NAME}"
     "train_cfg.nfe=${NFE}"
     "test_cfg.nfe=${NFE}"
+    "train_cfg.split_stage_diffusion_loss_weight=${SPLIT_STAGE_DIFFUSION_WEIGHT}"
     "train_cfg.split_stage_teacher_loss_weight=${SPLIT_STAGE_TEACHER_WEIGHT}"
     "train_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
     "test_cfg.split_stage_step2_x_ref_scale=${SPLIT_STAGE_STEP2_X_REF_SCALE}"
@@ -165,7 +167,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow split-stage dual-LoRA DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_warmup=${SPLIT_STAGE_GAN_WARMUP_ITERS}  gan_ramp=${SPLIT_STAGE_GAN_RAMP_ITERS}  gan_weight=${SPLIT_STAGE_GAN_WEIGHT}  teacher_ratio=0  sample_interval=${SAMPLE_INTERVAL}  dino_layers=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  fresh=${FRESH}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow split-stage dual-LoRA DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  diffusion_w=${SPLIT_STAGE_DIFFUSION_WEIGHT}  teacher_w=${SPLIT_STAGE_TEACHER_WEIGHT}  gan_warmup=${SPLIT_STAGE_GAN_WARMUP_ITERS}  gan_ramp=${SPLIT_STAGE_GAN_RAMP_ITERS}  gan_weight=${SPLIT_STAGE_GAN_WEIGHT}  teacher_ratio=0  sample_interval=${SAMPLE_INTERVAL}  dino_layers=${DINO_FEATURE_LAYERS}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  fresh=${FRESH}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_split_stage_dual_lora_dino_gan.py \

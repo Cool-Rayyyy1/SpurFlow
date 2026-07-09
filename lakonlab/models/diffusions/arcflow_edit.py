@@ -433,10 +433,12 @@ class ArcFlowEditImitationSplitStage(ArcFlowEditImitation):
 
 @MODULES.register_module()
 class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
-    """Split-stage edit distillation with step-2 GAN instead of direct flow MSE.
+    """Split-stage edit distillation with step-2 PIID + direct flow + GAN.
 
     Step-1 / step-2 PIID are active from the first iteration (no split-stage PIID
-    warmup; pretrain ckpt already provides a good step-1). External GAN loss on the
+    warmup; pretrain ckpt already provides a good step-1). Step-2 also keeps the
+    analytic direct flow MSE (``pred_delta ≈ x0_tgt - x_ref``) so GAN fine-tuning
+    cannot freely collapse the edit residual. External GAN loss on the
     Kontext-decoded t=0 rollout endpoint ramps in after
     ``split_stage_gan_warmup_iters`` over ``split_stage_gan_ramp_iters``.
     """
@@ -475,6 +477,7 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         base_segment_size, final_step_size = self._rollout_segment_sizes()
         policy_eps = self.train_cfg.get('eps', 1e-4)
         x_ref_scale_step2 = self.train_cfg.get('split_stage_step2_x_ref_scale', 1.0)
+        w_diff = self.train_cfg.get('split_stage_diffusion_loss_weight', 0.5)
         w_teacher = self.train_cfg.get('split_stage_teacher_loss_weight', 0.5)
         gan_loss_scale = self._gan_loss_scale(running_status)
         log_vars['gan_loss_scale'] = gan_loss_scale
@@ -512,8 +515,10 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         loss_step2_teacher, _, _ = self.piid_segment_momentum(
             teacher, policy_step2, x_t_step2, raw_t_step2, sigma_t_step2,
             teacher_ratio, final_step_size, teacher_kwargs)
+        loss_step2_diff = self._direct_flow_loss(
+            x_0, policy_step2, t_step2, sigma_t_step2)
 
-        loss = loss + w_teacher * loss_step2_teacher
+        loss = loss + w_teacher * loss_step2_teacher + w_diff * loss_step2_diff
 
         step2_latent = None
         if gan_loss_scale > 0:
@@ -534,6 +539,7 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
             loss=float(loss.detach()),
             loss_step1=float(loss_step1.detach()),
             loss_step2_teacher=float(loss_step2_teacher.detach()),
+            loss_step2_direct=float(loss_step2_diff.detach()),
         )
 
         if return_step2_latent:
@@ -546,9 +552,10 @@ class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGA
     """Split-stage GAN with independent step-1 / step-2 LoRA adapters on the student.
 
     Step-1 ``pred`` uses the ``step1`` adapter; step-2 ``pred`` and the GAN rollout use
-    ``step2``. GAN generator loss therefore backpropagates only into step-2 LoRA (plus
-    shared trainable heads reached from the step-2 graph). Validation ``forward_test``
-    switches adapters per rollout step to match training.
+    ``step2``. Step-2 loss is PIID + direct flow MSE + GAN. GAN generator loss therefore
+    backpropagates only into step-2 LoRA (plus shared trainable heads reached from the
+    step-2 graph). Validation ``forward_test`` switches adapters per rollout step to
+    match training.
     """
 
     LORA_STAGE_STEP1 = 'step1'
@@ -595,6 +602,7 @@ class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGA
         base_segment_size, final_step_size = self._rollout_segment_sizes()
         policy_eps = self.train_cfg.get('eps', 1e-4)
         x_ref_scale_step2 = self.train_cfg.get('split_stage_step2_x_ref_scale', 1.0)
+        w_diff = self.train_cfg.get('split_stage_diffusion_loss_weight', 0.5)
         w_teacher = self.train_cfg.get('split_stage_teacher_loss_weight', 0.5)
         gan_loss_scale = self._gan_loss_scale(running_status)
         log_vars['gan_loss_scale'] = gan_loss_scale
@@ -634,8 +642,10 @@ class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGA
         loss_step2_teacher, _, _ = self.piid_segment_momentum(
             teacher, policy_step2, x_t_step2, raw_t_step2, sigma_t_step2,
             teacher_ratio, final_step_size, teacher_kwargs)
+        loss_step2_diff = self._direct_flow_loss(
+            x_0, policy_step2, t_step2, sigma_t_step2)
 
-        loss = loss + w_teacher * loss_step2_teacher
+        loss = loss + w_teacher * loss_step2_teacher + w_diff * loss_step2_diff
 
         step2_latent = None
         if gan_loss_scale > 0:
@@ -653,6 +663,7 @@ class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGA
             loss=float(loss.detach()),
             loss_step1=float(loss_step1.detach()),
             loss_step2_teacher=float(loss_step2_teacher.detach()),
+            loss_step2_direct=float(loss_step2_diff.detach()),
         )
 
         if return_step2_latent:

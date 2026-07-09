@@ -18,6 +18,7 @@ from torch.distributed.fsdp._runtime_utils import (
 )
 from mmcv.parallel.scatter_gather import scatter_kwargs
 from mmcv.parallel import MODULE_WRAPPERS
+from lakonlab.utils import materialize_meta_states
 
 
 MODULE_WRAPPERS.register_module(
@@ -209,6 +210,11 @@ class FSDPWrapper(nn.Module):
             self, device_id, wrap_frozen_modules=False, ignore_frozen_parameters=False,
             exclude_keys=(), tie_key_mappings=None, **kwargs):
         for name, module in self.module._modules.items():
+            # Modules built under init_empty_weights() may keep unloaded
+            # parameters on the meta device (e.g. shape-mismatched proj_out).
+            # FSDP then tries reset_parameters() on child norms like RMSNorm,
+            # which fails. Materialize leftovers on CPU before wrapping.
+            materialize_meta_states(module, device='cpu')
             if name in exclude_keys or next(module.parameters(), None) is None:
                 module = module.cuda()
             elif all(not p.requires_grad for p in module.parameters()):

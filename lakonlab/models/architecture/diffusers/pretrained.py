@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from diffusers.models import AutoencoderKL, AutoencoderKLQwenImage
 from diffusers.pipelines import FluxPipeline, QwenImagePipeline, StableDiffusion3Pipeline
+from diffusers.pipelines.qwenimage.pipeline_qwenimage_edit_plus import QwenImageEditPlusPipeline
 from mmgen.models.builder import MODULES
 
 # Suppress truncation warnings from transformers and diffusers
@@ -233,6 +234,69 @@ class PretrainedQwenImageTextEncoder(nn.Module):
                 prompt_embeds, (0, 0, 0, pad_len), value=0.0)
             prompt_embeds_mask = F.pad(
                 prompt_embeds_mask, (0, pad_len), value=0.0)
+        return dict(
+            encoder_hidden_states=prompt_embeds,
+            encoder_hidden_states_mask=prompt_embeds_mask)
+
+
+@MODULES.register_module()
+class PretrainedQwenImageEditTextEncoder(nn.Module):
+    def __init__(self,
+                 from_pretrained='Qwen/Qwen-Image-Edit-2511',
+                 freeze=True,
+                 eval_mode=True,
+                 torch_dtype='bfloat16',
+                 max_sequence_length=512,
+                 **kwargs):
+        super().__init__()
+        self.max_sequence_length = max_sequence_length
+        self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
+            from_pretrained,
+            scheduler=None,
+            vae=None,
+            transformer=None,
+            torch_dtype=getattr(torch, torch_dtype),
+            **kwargs)
+        self.text_encoder = self.pipeline.text_encoder
+        self.processor = self.pipeline.processor
+        self.freeze = freeze
+        self.eval_mode = eval_mode
+        if self.freeze:
+            self.requires_grad_(False)
+        if self.eval_mode:
+            self.eval()
+
+    def train(self, mode=True):
+        mode = mode and (not self.eval_mode)
+        return super().train(mode)
+
+    @staticmethod
+    def _tensor_to_pil(image):
+        from PIL import Image
+        import numpy as np
+
+        if image.dim() == 4:
+            image = image[0]
+        arr = (image.detach().float().clamp(0, 1).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+        return Image.fromarray(arr)
+
+    def forward(self, prompt, source_images=None, condition_source_images=None):
+        vl_images = condition_source_images if condition_source_images is not None else source_images
+        if vl_images is None:
+            raise ValueError(
+                'PretrainedQwenImageEditTextEncoder requires `source_images` or '
+                '`condition_source_images` for edit prompts.')
+        if torch.is_tensor(vl_images):
+            image = self._tensor_to_pil(vl_images)
+        elif isinstance(vl_images, (list, tuple)):
+            image = [self._tensor_to_pil(img) if torch.is_tensor(img) else img for img in vl_images]
+        else:
+            image = vl_images
+
+        prompt_embeds, prompt_embeds_mask = self.pipeline.encode_prompt(
+            prompt=prompt,
+            image=image,
+            max_sequence_length=self.max_sequence_length)
         return dict(
             encoder_hidden_states=prompt_embeds,
             encoder_hidden_states_mask=prompt_embeds_mask)

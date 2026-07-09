@@ -121,6 +121,7 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
+    split_stage_diffusion_loss_weight=0.5,
     split_stage_teacher_loss_weight=0.5,
     split_stage_step2_x_ref_scale=1.0,
     split_stage_gan_warmup_iters=0,

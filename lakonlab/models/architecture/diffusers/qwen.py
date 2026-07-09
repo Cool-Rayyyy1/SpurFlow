@@ -1,5 +1,7 @@
 import torch
 
+from typing import List, Optional, Tuple
+
 from accelerate import init_empty_weights
 from diffusers.models import QwenImageTransformer2DModel as _QwenImageTransformer2DModel
 from diffusers.loaders.lora_conversion_utils import _convert_non_diffusers_qwen_lora_to_diffusers
@@ -8,6 +10,7 @@ from mmgen.models.builder import MODULES
 from mmgen.utils import get_root_logger
 from ..utils import flex_freeze
 from lakonlab.runner.checkpoint import load_checkpoint, _load_checkpoint
+from lakonlab.utils import materialize_meta_states
 
 
 @MODULES.register_module()
@@ -35,6 +38,8 @@ class QwenImageTransformer2DModel(_QwenImageTransformer2DModel):
         self.patch_size = patch_size
 
         self.init_weights(pretrained, pretrained_lora, pretrained_lora_scale)
+        # Ensure no meta leftovers remain after partial / mismatched loads.
+        materialize_meta_states(self, device='cpu')
 
         self.use_lora = use_lora
         self.lora_target_modules = lora_target_modules
@@ -136,4 +141,56 @@ class QwenImageTransformer2DModel(_QwenImageTransformer2DModel):
             **kwargs)[0]
 
         output = output.permute(0, 2, 1).reshape(bs, self.out_channels, h, w)
+        return self.unpatchify(output)
+
+
+@MODULES.register_module()
+class QwenImageEditTransformer2DModel(QwenImageTransformer2DModel):
+
+    def forward(
+            self,
+            hidden_states: torch.Tensor,
+            timestep: torch.Tensor,
+            encoder_hidden_states: torch.Tensor = None,
+            encoder_hidden_states_mask: torch.Tensor = None,
+            image_latents: Optional[torch.Tensor] = None,
+            **kwargs):
+        hidden_states = self.patchify(hidden_states)
+        bs, c, h, w = hidden_states.size()
+        target_seq_len = h * w
+        dtype = hidden_states.dtype
+        hidden_states = hidden_states.reshape(bs, c, target_seq_len).permute(0, 2, 1)
+        img_shapes: List[List[Tuple[int, int, int]]] = [[(1, h, w)]]
+
+        if image_latents is not None:
+            ref = self.patchify(image_latents)
+            _, c_ref, h_ref, w_ref = ref.size()
+            if h_ref != h or w_ref != w:
+                raise ValueError(
+                    f'Reference latents spatial size {(h_ref, w_ref)} must match target {(h, w)}.')
+            ref_hidden = ref.reshape(bs, c_ref, h_ref * w_ref).permute(0, 2, 1)
+            hidden_states = torch.cat([hidden_states, ref_hidden], dim=1)
+            img_shapes = [[(1, h, w), (1, h_ref, w_ref)]]
+
+        if encoder_hidden_states_mask is not None:
+            txt_seq_lens = encoder_hidden_states_mask.sum(dim=1)
+            max_txt_seq_len = txt_seq_lens.max()
+            encoder_hidden_states = encoder_hidden_states[:, :max_txt_seq_len]
+            encoder_hidden_states_mask = encoder_hidden_states_mask[:, :max_txt_seq_len]
+            txt_seq_lens = txt_seq_lens.tolist()
+        else:
+            txt_seq_lens = None
+
+        output = _QwenImageTransformer2DModel.forward(
+            self,
+            hidden_states=hidden_states,
+            encoder_hidden_states=encoder_hidden_states.to(dtype),
+            encoder_hidden_states_mask=encoder_hidden_states_mask,
+            timestep=timestep,
+            img_shapes=img_shapes,
+            txt_seq_lens=txt_seq_lens,
+            return_dict=False,
+            **kwargs)[0]
+
+        output = output[:, :target_seq_len].permute(0, 2, 1).reshape(bs, self.out_channels, h, w)
         return self.unpatchify(output)

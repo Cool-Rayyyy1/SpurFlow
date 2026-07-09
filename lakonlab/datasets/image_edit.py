@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EditFlow contributors
 
 import json
+import math
 import os
 from typing import Optional, Tuple, Union
 
@@ -52,6 +53,39 @@ def _pick_kontext_resolution(width: int, height: int) -> Tuple[int, int]:
     return bw, bh
 
 
+def _calculate_qwen_dimensions(
+        target_area: int,
+        width: int,
+        height: int,
+        align: int = 16) -> Tuple[int, int]:
+    """Qwen-Image(-Edit) area-based resize (diffusers calculate_dimensions)."""
+    ratio = width / max(height, 1)
+    out_w = math.sqrt(target_area * ratio)
+    out_h = out_w / ratio
+    out_w = round(out_w / 32) * 32
+    out_h = round(out_h / 32) * 32
+    if align > 1:
+        out_w = int(out_w) // align * align
+        out_h = int(out_h) // align * align
+    return max(out_w, align), max(out_h, align)
+
+
+# Qwen-Image-Edit pipeline uses ~1M pixels for VAE latents and ~147K for VL conditioning.
+QWEN_VAE_IMAGE_AREA = 1024 * 1024
+QWEN_CONDITION_IMAGE_AREA = 384 * 384
+QWEN_VAE_ALIGN = 16  # vae_scale_factor(8) * patch packing factor(2)
+
+
+def _pick_qwen_vae_resolution(width: int, height: int) -> Tuple[int, int]:
+    return _calculate_qwen_dimensions(
+        QWEN_VAE_IMAGE_AREA, width, height, align=QWEN_VAE_ALIGN)
+
+
+def _pick_qwen_condition_resolution(width: int, height: int) -> Tuple[int, int]:
+    return _calculate_qwen_dimensions(
+        QWEN_CONDITION_IMAGE_AREA, width, height, align=QWEN_VAE_ALIGN)
+
+
 def _resize_to(image: np.ndarray, width: int, height: int) -> np.ndarray:
     """Plain bicubic resize to (width, height) (FLUX Kontext style, no crop)."""
     h, w = image.shape[:2]
@@ -91,8 +125,8 @@ class ImageEdit(Dataset):
             require_edited: bool = False,
             resize_mode: str = 'center_crop'):
         super().__init__()
-        assert resize_mode in ('center_crop', 'kontext'), (
-            f'Unsupported resize_mode={resize_mode}; expected center_crop or kontext.')
+        assert resize_mode in ('center_crop', 'kontext', 'qwen'), (
+            f'Unsupported resize_mode={resize_mode}; expected center_crop, kontext, or qwen.')
         self.data_root = os.path.abspath(data_root)
         self.edited_root = os.path.join(self.data_root, edited_images_dir)
         self.image_size = image_size
@@ -179,8 +213,8 @@ class ImageEdit(Dataset):
             self._skip_warned = True
 
     def _to_tensor(self, image: np.ndarray, bucket: Optional[Tuple[int, int]] = None) -> torch.Tensor:
-        if self.resize_mode == 'kontext':
-            assert bucket is not None, 'kontext resize_mode requires a (w, h) bucket.'
+        if self.resize_mode in ('kontext', 'qwen'):
+            assert bucket is not None, f'{self.resize_mode} resize_mode requires a (w, h) bucket.'
             image = _resize_to(image, bucket[0], bucket[1])
         else:
             image = _resize_center_crop(image, self.image_size)
@@ -188,8 +222,8 @@ class ImageEdit(Dataset):
         return tensor
 
     def _latent_size_for_image(self, bucket: Optional[Tuple[int, int]] = None):
-        if self.resize_mode == 'kontext':
-            assert bucket is not None, 'kontext resize_mode requires a (w, h) bucket.'
+        if self.resize_mode in ('kontext', 'qwen'):
+            assert bucket is not None, f'{self.resize_mode} resize_mode requires a (w, h) bucket.'
             bw, bh = bucket
             return (self.latent_size[0], bh // self.vae_scale_factor, bw // self.vae_scale_factor)
         h = w = self.image_size // self.vae_scale_factor
@@ -233,11 +267,17 @@ class ImageEdit(Dataset):
             self._warn_skip_once(mapped_idx, f'broken source: {source_path}')
             return None
 
-        # In kontext mode the bucket is chosen from the SOURCE aspect ratio and
-        # applied to both source and edited so x_ref and x_0 share the latent grid.
+        # kontext: discrete FLUX bucket from source aspect ratio.
+        # qwen: fixed-area resize (~1024^2 px) for VAE; VL encoder uses a separate
+        # ~384^2 resize in PretrainedQwenImageEditTextEncoder.
         bucket = None
+        condition_bucket = None
         if self.resize_mode == 'kontext':
             bucket = _pick_kontext_resolution(source_arr.shape[1], source_arr.shape[0])
+        elif self.resize_mode == 'qwen':
+            src_w, src_h = source_arr.shape[1], source_arr.shape[0]
+            bucket = _pick_qwen_vae_resolution(src_w, src_h)
+            condition_bucket = _pick_qwen_condition_resolution(src_w, src_h)
         source_tensor = self._to_tensor(source_arr, bucket)
 
         latent_size = self._latent_size_for_image(bucket)
@@ -248,6 +288,8 @@ class ImageEdit(Dataset):
             prompt_kwargs=dict(prompt=DC(prompt, cpu_only=True)),
             source_images=source_tensor,
         )
+        if condition_bucket is not None:
+            data['condition_source_images'] = self._to_tensor(source_arr, condition_bucket)
 
         if self.test_mode:
             data['noise'] = torch.randn(
