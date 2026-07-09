@@ -141,7 +141,10 @@ def train_model(model,
     # sample image hooks (no metrics; save images on ckpt intervals)
     sample_eval = cfg.get('sample_eval', None)
     if sample_eval and sample_eval.get('enabled', False):
-        val_dataset = build_dataset(cfg.data[sample_eval['data']])
+        if sample_eval.get('dataset') is not None:
+            val_dataset = build_dataset(sample_eval['dataset'])
+        else:
+            val_dataset = build_dataset(cfg.data[sample_eval['data']])
         sample_loader_cfg = {
             **loader_cfg,
             'shuffle': False,
@@ -151,6 +154,7 @@ def train_model(model,
         sample_hook_cfg = sample_eval.copy()
         sample_hook_cfg.pop('enabled', None)
         sample_hook_cfg.pop('data', None)
+        sample_hook_cfg.pop('dataset', None)
         priority = sample_hook_cfg.pop('priority', 'LOW')
         sample_hook_cfg.update(dict(dataloader=sample_dataloader))
         sample_hook = build_from_cfg(sample_hook_cfg, HOOKS)

@@ -14,6 +14,7 @@ model = dict(
         from_pretrained=qwen_model,
         subfolder='vae',
         freeze=True,
+        use_slicing=True,
         torch_dtype='bfloat16'),
     diffusion=dict(
         type='ArcFlowEditImitation',
@@ -121,11 +122,21 @@ test_cfg = dict(
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    data='val',
+    # Fixed ImgEdit-Bench subset: 9 categories × 2 examples (seeded).
+    dataset=dict(
+        type='ImgEditBenchSample',
+        annotations_path=(
+            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            'annotations/basic_edit.json'),
+        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        samples_per_category=2,
+        seed=42,
+        resize_mode='qwen',
+    ),
     interval=save_interval,
     must_save_interval=must_save_interval,
     output_dir='samples',
-    max_samples=8,
+    max_samples=None,  # dump the full fixed subset
     priority='LOW',
 )
 

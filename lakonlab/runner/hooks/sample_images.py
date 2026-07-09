@@ -168,18 +168,35 @@ def _batch_item(value, index):
     if isinstance(value, torch.Tensor):
         return value[index]
     if isinstance(value, (list, tuple)):
-        return value[index]
+        item = value[index]
+        # cpu_only DataContainer collate may nest one extra list level.
+        while isinstance(item, (list, tuple)) and len(item) == 1:
+            item = item[0]
+        return item
     return value
+
+
+def _sample_folder_name(data, index, fallback_idx):
+    """Prefer category/example_name layout when present on the batch."""
+    category = _batch_item(data.get('category'), index)
+    example_name = _batch_item(data.get('example_name'), index)
+    if category is not None and example_name is not None:
+        return osp.join(str(category), str(example_name))
+    return f'{fallback_idx:03d}'
 
 
 @HOOKS.register_module()
 class EditFlowSampleImagesHook(Hook):
     """Save edit validation samples as one folder per example.
 
-    Each folder under ``iter_<N>/`` contains:
+    Default layout under ``iter_<N>/``:
+      - ``000/``, ``001/``, ... when dataset has no category metadata
+      - ``<category>/example1/``, ``<category>/example2/``, ... for ImgEditBenchSample
+
+    Each folder contains:
       - src.png     source / reference image
       - pred.png    current model output
-      - target.png  dataset ground-truth edited image
+      - target.png  optional ground-truth edited image
       - prompt.txt  editing instruction
     """
 
@@ -190,13 +207,14 @@ class EditFlowSampleImagesHook(Hook):
             must_save_interval=1000000000,
             save_last=True,
             output_dir='samples',
-            max_samples=8,
+            max_samples=None,
             start_iter=0):
         self.dataloader = dataloader
         self.interval = interval
         self.must_save_interval = must_save_interval
         self.save_last = save_last
         self.output_dir = output_dir
+        # None / <=0 means dump the full dataloader once.
         self.max_samples = max_samples
         self.start_iter = start_iter
 
@@ -226,7 +244,12 @@ class EditFlowSampleImagesHook(Hook):
 
         runner.model.eval()
         saved = 0
-        max_steps = _max_val_steps(self.dataloader, self.max_samples)
+        if self.max_samples is None or int(self.max_samples) <= 0:
+            max_steps = len(self.dataloader)
+            max_samples = len(self.dataloader.dataset)
+        else:
+            max_samples = int(self.max_samples)
+            max_steps = _max_val_steps(self.dataloader, max_samples)
 
         with torch.no_grad():
             for step_idx, data_batch in enumerate(self.dataloader):
@@ -235,42 +258,55 @@ class EditFlowSampleImagesHook(Hook):
 
                 # FSDP forward requires every rank to enter val_step together.
                 outputs = runner.model.val_step(data_batch)
-                if rank != 0:
-                    continue
+                if rank == 0:
+                    pred_imgs = outputs['pred_imgs'].detach().float().cpu().clamp(0, 1)
 
-                pred_imgs = outputs['pred_imgs'].detach().float().cpu().clamp(0, 1)
+                    data = _unwrap_dc(data_batch)
+                    batch_size = pred_imgs.size(0)
+                    batch_names = data.get(
+                        'name', [f'sample_{saved + i}' for i in range(batch_size)])
+                    if not isinstance(batch_names, list):
+                        batch_names = [batch_names] * batch_size
 
-                data = _unwrap_dc(data_batch)
-                batch_size = pred_imgs.size(0)
-                batch_names = data.get('name', [f'sample_{saved + i}' for i in range(batch_size)])
-                if not isinstance(batch_names, list):
-                    batch_names = [batch_names] * batch_size
+                    source_imgs = data.get('source_images')
+                    target_imgs = data.get('edited_images')
 
-                source_imgs = data.get('source_images')
-                target_imgs = data.get('edited_images')
+                    for i in range(batch_size):
+                        if saved >= max_samples:
+                            break
 
-                for i in range(batch_size):
-                    if saved >= self.max_samples:
-                        break
+                        sample_dir = osp.join(
+                            out_dir, _sample_folder_name(data, i, saved))
+                        mmcv.mkdir_or_exist(sample_dir)
 
-                    sample_dir = osp.join(out_dir, f'{saved:03d}')
-                    mmcv.mkdir_or_exist(sample_dir)
+                        prompt = str(
+                            batch_names[i] if i < len(batch_names) else f'sample_{saved}')
+                        with open(osp.join(sample_dir, 'prompt.txt'), 'w', encoding='utf-8') as f:
+                            f.write(prompt)
 
-                    prompt = str(batch_names[i] if i < len(batch_names) else f'sample_{saved}')
-                    with open(osp.join(sample_dir, 'prompt.txt'), 'w', encoding='utf-8') as f:
-                        f.write(prompt)
+                        src = _batch_item(source_imgs, i)
+                        if src is not None:
+                            save_image(
+                                src.detach().float().cpu().clamp(0, 1),
+                                osp.join(sample_dir, 'src.png'))
 
-                    src = _batch_item(source_imgs, i)
-                    if src is not None:
-                        save_image(src.detach().float().cpu().clamp(0, 1), osp.join(sample_dir, 'src.png'))
+                        save_image(pred_imgs[i], osp.join(sample_dir, 'pred.png'))
 
-                    save_image(pred_imgs[i], osp.join(sample_dir, 'pred.png'))
+                        target = _batch_item(target_imgs, i)
+                        if target is not None:
+                            save_image(
+                                target.detach().float().cpu().clamp(0, 1),
+                                osp.join(sample_dir, 'target.png'))
 
-                    target = _batch_item(target_imgs, i)
-                    if target is not None:
-                        save_image(target.detach().float().cpu().clamp(0, 1), osp.join(sample_dir, 'target.png'))
+                        saved += 1
 
-                    saved += 1
+                    del pred_imgs, outputs
+                else:
+                    del outputs
+
+                # Qwen VAE decode is peaky; free fragmentation between samples.
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         if rank == 0:
             runner.logger.info(

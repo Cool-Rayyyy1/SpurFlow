@@ -183,11 +183,21 @@ fsdp_kwargs = dict(
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    data='val',
+    # Fixed ImgEdit-Bench subset: 9 categories × 2 examples (seeded), same as qwen train.
+    dataset=dict(
+        type='ImgEditBenchSample',
+        annotations_path=(
+            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            'annotations/basic_edit.json'),
+        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        samples_per_category=2,
+        seed=42,
+        resize_mode='kontext',
+    ),
     interval=sample_interval,
     must_save_interval=0,
     output_dir='samples',
-    max_samples=8,
+    max_samples=None,  # dump the full fixed subset
     priority='LOW',
 )
 

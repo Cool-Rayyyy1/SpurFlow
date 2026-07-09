@@ -154,6 +154,8 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
                 vae_dtype = next(self.vae.parameters()).dtype
             latents_out = latents_out.to(vae_dtype)
 
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             out_images = (self.vae.decode(latents_out).float() / 2 + 0.5).clamp(min=0, max=1)
 
             return dict(num_samples=bs, pred_imgs=out_images)

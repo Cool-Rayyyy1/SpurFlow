@@ -20,6 +20,9 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "${PROJECT_DIR}/setup_env.sh"
 
+# Fix corrupt yapf Grammar*.pickle before torchrun (multi-rank import race on AFS).
+bash "${PROJECT_DIR}/tools/fix_yapf_grammar_pickle.sh"
+
 if [[ $# -ge 1 && "${1}" =~ ^[0-9]+$ ]]; then
     NUM_GPUS="${1}"
     shift
@@ -33,6 +36,8 @@ if ! [[ "${NUM_GPUS}" =~ ^[0-9]+$ ]] || [[ "${NUM_GPUS}" -lt 1 ]]; then
 fi
 
 # ---------- user knobs ----------
+# Note: empty env overrides like `VAR=` bypass ${VAR:-default} only if we re-check;
+# force numeric defaults when the caller exports an empty string.
 NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
@@ -57,6 +62,10 @@ SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.01}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
 DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-17,23}"  # ViT-L has blocks 0-23 only
+
+[[ -n "${SPLIT_STAGE_DIFFUSION_WEIGHT}" ]] || SPLIT_STAGE_DIFFUSION_WEIGHT=0.5
+[[ -n "${SPLIT_STAGE_TEACHER_WEIGHT}" ]] || SPLIT_STAGE_TEACHER_WEIGHT=0.5
+[[ -n "${SPLIT_STAGE_GAN_WEIGHT}" ]] || SPLIT_STAGE_GAN_WEIGHT=0.01
 # --------------------------------
 
 RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_split_stage_dual_lora_dino_gan"
