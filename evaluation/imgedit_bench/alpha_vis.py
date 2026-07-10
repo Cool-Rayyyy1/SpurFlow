@@ -369,6 +369,50 @@ def render_alpha_heatmap(
     return _compose_with_header(canvas, title=title, subtitle=subtitle, colorbar_range=(vmin, vmax))
 
 
+# Soft binary colors for alpha∈{0,1} visualizations (v5).
+ALPHA0_RGB = (220, 60, 60)    # red  = drop x_ref (edit freely)
+ALPHA1_RGB = (40, 170, 90)    # green = keep x_ref
+
+
+def render_binary_alpha_on_src(
+    src_pil: Image.Image,
+    alpha_latent: torch.Tensor,
+    *,
+    blend: float = 0.38,
+    step_label: Optional[str] = None,
+    title_prefix: str = "Alpha heatmap",
+    draw_grid: bool = True,
+) -> Image.Image:
+    """Soft red(α=0) / green(α=1) tint over source so the image stays visible."""
+    src = np.array(src_pil.convert("RGB"), dtype=np.float32)
+    img_h, img_w = src.shape[:2]
+    alpha_up = upsample_alpha_to_image(alpha_latent, img_h, img_w, smooth=False)
+    # Hard binary for display (model already outputs {0,1}; nearest upsample keeps edges).
+    alpha_bin = (alpha_up >= 0.5).astype(np.float32)
+
+    color = np.zeros_like(src)
+    color[..., 0] = ALPHA0_RGB[0] * (1.0 - alpha_bin) + ALPHA1_RGB[0] * alpha_bin
+    color[..., 1] = ALPHA0_RGB[1] * (1.0 - alpha_bin) + ALPHA1_RGB[1] * alpha_bin
+    color[..., 2] = ALPHA0_RGB[2] * (1.0 - alpha_bin) + ALPHA1_RGB[2] * alpha_bin
+
+    out = src * (1.0 - blend) + color * blend
+    out = np.clip(out, 0, 255).astype(np.uint8)
+    body = Image.fromarray(out, mode="RGB")
+    if draw_grid:
+        body = _patch_grid_overlay(body)
+
+    frac1 = float(alpha_bin.mean())
+    frac0 = 1.0 - frac1
+    title = f"{title_prefix}  (α∈{{0,1}})"
+    if step_label:
+        title = f"{title}  ·  {step_label}"
+    subtitle = (
+        f"red=α0 (edit) {frac0 * 100:.1f}%  ·  green=α1 (keep ref) {frac1 * 100:.1f}%  ·  "
+        f"blend={blend:.2f}"
+    )
+    return _compose_with_header(body, title=title, subtitle=subtitle, colorbar_range=None)
+
+
 def render_src_alpha_low_overlay(
     src_pil: Image.Image,
     alpha_latent: torch.Tensor,
