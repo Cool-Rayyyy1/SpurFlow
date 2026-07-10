@@ -56,7 +56,7 @@ class ArcFlowEditNewEpsModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditNewAlphaModelOutput(BaseOutput):
-    """EditFlow-new with per-patch binary alpha logits (off/on, 2-way softmax)."""
+    """EditFlow-new with per-subpixel soft alpha logits (sigmoid gate on x_ref)."""
 
     deltax: torch.Tensor
     logweights: torch.Tensor

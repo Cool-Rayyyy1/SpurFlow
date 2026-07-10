@@ -8,9 +8,9 @@ from .arcflow_edit_new import ArcFlowEditNewPolicy
 
 
 class ArcFlowEditNewAlphaPolicy(ArcFlowEditNewPolicy):
-    """Edit policy with per-patch binary alpha gating the reference term.
+    """Edit policy with per-pixel soft alpha gating the reference term.
 
-    alpha in {0, 1} from 2-way softmax (+ Gumbel hard during training).
+    alpha = sigmoid(logits) in (0, 1), one value per latent pixel (2x2 per DiT patch).
     student_u = path_epsilon - alpha * x_ref - pred_delta
     """
 

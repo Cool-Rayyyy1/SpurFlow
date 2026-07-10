@@ -3,7 +3,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from typing import Any, Dict, Optional
 from diffusers.utils import USE_PEFT_BACKEND, scale_lora_layers, unscale_lora_layers
@@ -20,35 +19,24 @@ from .arcflux_edit_new import _ArcFluxEditNewTransformer2DModel
 
 
 class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
+    """Soft alpha gate: one logit per sub-pixel in each DiT patch (patch_size^2).
 
-    ALPHA_OFF_BIAS = -2.0
-    ALPHA_ON_BIAS = 2.0
-    ALPHA_GUMBEL_TAU = 1.0
+    alpha = sigmoid(logits) in (0, 1), used as student_u = eps - alpha * x_ref - pred_delta.
+    """
+
+    # Positive bias => sigmoid≈0.88 at init (near keep-ref / full x_ref).
+    ALPHA_INIT_BIAS = 2.0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proj_out_alpha = nn.Linear(self.inner_dim, 2)
+        # Same channel layout as logweights: patch_size^2 scores per DiT token.
+        self.proj_out_alpha = nn.Linear(self.inner_dim, self.logweights_channels)
 
     def init_weights(self):
         super().init_weights()
         constant_init(self.proj_out_alpha.to_empty(device='cpu'), val=0)
         with torch.no_grad():
-            self.proj_out_alpha.bias[0] = self.ALPHA_OFF_BIAS
-            self.proj_out_alpha.bias[1] = self.ALPHA_ON_BIAS
-
-    @classmethod
-    def binary_alpha_from_logits(cls, logits, training, tau=None):
-        """Map 2-way logits to hard alpha in {0, 1} (on = use x_ref).
-
-        Train: Gumbel-Softmax hard one-hot with straight-through gradients.
-        Eval: softmax then threshold at 0.5 on the "on" class probability.
-        """
-        if tau is None:
-            tau = cls.ALPHA_GUMBEL_TAU
-        if training:
-            return F.gumbel_softmax(logits, tau=tau, hard=True, dim=-1)[..., 1]
-        probs = F.softmax(logits, dim=-1)
-        return (probs[..., 1] >= 0.5).to(probs.dtype)
+            self.proj_out_alpha.bias.fill_(self.ALPHA_INIT_BIAS)
 
     def forward(
             self,
@@ -161,7 +149,8 @@ class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             bs, seq_len, self.num_gaussians, self.logweights_channels).log_softmax(dim=-2)
         out_log_gammas = self.proj_out_loggamma(hidden_states).reshape(
             bs, seq_len, self.num_gammas, self.logweights_channels)
-        out_alpha_logits = self.proj_out_alpha(hidden_states).reshape(bs, seq_len, 2)
+        out_alpha_logits = self.proj_out_alpha(hidden_states).reshape(
+            bs, seq_len, self.logweights_channels)
 
         if USE_PEFT_BACKEND:
             unscale_lora_layers(self, lora_scale)
@@ -327,9 +316,15 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
                 ).reshape(
                     bs, c_eps // (self.patch_size * self.patch_size),
                     h_eps * self.patch_size, w_eps * self.patch_size)
+            # alpha: (B, 1, patch^2, h, w) -> (B, 1, H, W) like logweights channels.
             alpha = mp['alpha']
-            mp['alpha'] = alpha.repeat_interleave(
-                self.patch_size, dim=-2).repeat_interleave(self.patch_size, dim=-1)
+            _, _, c_alpha, h_alpha, w_alpha = alpha.size()
+            mp['alpha'] = alpha.reshape(
+                bs, 1, self.patch_size, self.patch_size, h_alpha, w_alpha
+            ).permute(
+                0, 1, 4, 2, 5, 3
+            ).reshape(
+                bs, 1, h_alpha * self.patch_size, w_alpha * self.patch_size)
             mp['logweights'] = mp['logweights'].reshape(
                 bs, k, 1, self.patch_size, self.patch_size, h, w
             ).permute(
@@ -399,9 +394,10 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
                 txt_ids=txt_ids,
                 **kwargs)
 
-        alpha_logits = output.alpha_logits[:, :target_seq_len].reshape(bs, h, w, 2)
-        alpha = self.binary_alpha_from_logits(alpha_logits, self.training)
-        alpha = alpha.unsqueeze(1)
+        # (B, seq, patch^2) -> (B, 1, patch^2, h, w); soft gate, no 1+alpha.
+        alpha_logits = output.alpha_logits[:, :target_seq_len].permute(0, 2, 1).reshape(
+            bs, self.logweights_channels, h, w)
+        alpha = torch.sigmoid(alpha_logits).unsqueeze(1)
 
         output_dict = dict(
             deltax=output.deltax[:, :target_seq_len].permute(0, 2, 3, 1).reshape(

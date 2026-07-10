@@ -7,7 +7,8 @@
 #   student_u = path_epsilon - alpha * x_ref - pred_delta
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (nearest FLUX Kontext bucket, matches training).
 # Default ckpt: .../gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k/iter_8500.pth
-# Requires softmax binary alpha ckpt (proj_out_alpha dim=2).
+# Requires soft-sigmoid alpha ckpt (proj_out_alpha dim=4 = patch_size^2).
+# Binary dim=2 ckpts are incompatible.
 #
 # Do NOT use run_gmkontext_uedit_fixedeps_infer.sh — that script targets the 3-head model
 # without proj_out_alpha (editflux_uedit_fixedeps_2nfe_k16_data.py).

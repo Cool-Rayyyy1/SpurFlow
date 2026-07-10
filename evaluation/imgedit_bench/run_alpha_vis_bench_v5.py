@@ -6,8 +6,10 @@ Layout:
     prompt.txt
     src.png
     edit.png
+    step1_alpha.png      # blank grid + per-patch alpha values (no src)
     step1_heatmap.png
     step1_overlay.png
+    step2_alpha.png
     step2_heatmap.png
     step2_overlay.png
 
@@ -37,6 +39,7 @@ if str(EDITFLOW_ROOT) not in sys.path:
 
 from alpha_vis import (  # noqa: E402
     capture_student_alphas,
+    render_alpha_grid_blank,
     render_binary_alpha_on_src,
 )
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
@@ -150,8 +153,10 @@ def v5_output_paths(case_dir: Path) -> Dict[str, Path]:
         "prompt": case_dir / "prompt.txt",
         "src": case_dir / "src.png",
         "edit": case_dir / "edit.png",
+        "step1_alpha": case_dir / "step1_alpha.png",
         "step1_heatmap": case_dir / "step1_heatmap.png",
         "step1_overlay": case_dir / "step1_overlay.png",
+        "step2_alpha": case_dir / "step2_alpha.png",
         "step2_heatmap": case_dir / "step2_heatmap.png",
         "step2_overlay": case_dir / "step2_overlay.png",
     }
@@ -209,8 +214,13 @@ def process_samples(
         src_pil.save(paths["src"])
         edit_pil.save(paths["edit"])
 
+        img_w, img_h = src_pil.size
         for step_i, alpha in enumerate(alphas[:2], start=1):
             step_label = f"step {step_i}/{num_steps}"
+            # Raw per-patch alpha values on blank canvas (no src).
+            render_alpha_grid_blank(
+                img_w, img_h, alpha, step_label=step_label,
+            ).save(paths[f"step{step_i}_alpha"])
             render_binary_alpha_on_src(
                 src_pil,
                 alpha,
@@ -337,7 +347,7 @@ def main() -> None:
     (args.output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved v5 packs for {len(manifest)} cases -> {args.output_dir}")
-    print("Layout: <category>/exampleK/{prompt.txt,src,edit,step1_*,step2_*}")
+    print("Layout: <category>/exampleK/{prompt.txt,src,edit,step{1,2}_{alpha,heatmap,overlay}}")
 
 
 if __name__ == "__main__":

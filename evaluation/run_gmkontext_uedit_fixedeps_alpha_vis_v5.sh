@@ -3,9 +3,11 @@
 # Layout:
 #   .../alpha_vis_v5/<category>/exampleK/
 #     prompt.txt  src.png  edit.png
+#     step1_alpha.png     # blank grid + per-patch alpha values (no src)
 #     step1_heatmap.png  step1_overlay.png
-#     step2_heatmap.png  step2_overlay.png
+#     step2_alpha.png  step2_heatmap.png  step2_overlay.png
 #
+# step*_alpha: raw α numbers on blank grid (no src).
 # Heatmap/overlay: soft red(α=0) / green(α=1) tint on src (src still visible).
 # Default: 2 seeded examples × 9 basic categories (same seed as training sample dumps).
 #
@@ -89,7 +91,7 @@ fi
 
 echo "Running: ${cmd[*]}"
 echo "Output:  ${OUTPUT_DIR}"
-echo "Per case: prompt.txt src.png edit.png step{1,2}_{heatmap,overlay}.png"
+echo "Per case: prompt.txt src.png edit.png step{1,2}_{alpha,heatmap,overlay}.png"
 "${cmd[@]}"
 
 echo "Done. Alpha v5 -> ${OUTPUT_DIR}"

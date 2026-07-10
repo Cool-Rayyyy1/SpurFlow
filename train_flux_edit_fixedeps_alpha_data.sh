@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# EditFlow fixed path epsilon + per-patch binary alpha gate (4 proj heads):
-#   pred_delta = mixture(deltax_k; weights, gammas) ~ x0_tgt - x_ref
-#   alpha in {0,1} via 2-way softmax + Gumbel hard (train) / threshold (eval)
-#   student_u = path_epsilon - alpha * x_ref - pred_delta
-#   alpha init = 1 (logit bias off/on = -2/+2)
+# EditFlow fixed path epsilon + per-subpixel soft alpha gate (4 proj heads):
+#   pred_delta = mixture(deltax_k; weights, gammas) ~ x0_tgt - alpha * x_ref
+#   alpha = sigmoid(logits), logits dim = patch_size^2 (=4 for 2x2 DiT patches)
+#   student_u = path_epsilon - alpha * x_ref - pred_delta   # no 1+alpha
+#   alpha init bias=+2 => sigmoid≈0.88 (near keep-ref); weight=0
 #   DiT backbone from FLUX; deltax_init=kaiming; inherit_proj_out_deltax=False.
 #
 #   bash train_flux_edit_fixedeps_alpha_data.sh              # default: 2 GPUs
