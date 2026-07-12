@@ -524,8 +524,10 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         if gan_loss_scale > 0:
             raw_t_final = raw_t_step2 - final_step_size
             # Reuse PIID step-2 policy; integrate to t=0 for GAN decode (no second pred).
-            # With gan_grad_step2_only, detach the rollout state so GAN does not backprop
-            # into step-1 through the integration input (policy_step2 is shared with PIID).
+            # With gan_grad_step2_only, detach the integration-state input. Note this
+            # only cuts the additive x_t path: policy_step2 itself was predicted from
+            # the non-detached x_t_step2, so GAN grads still reach step-1 through the
+            # network input (same chaining path as the step-2 PIID/direct losses).
             x_t_gan_in = (
                 x_t_step2.detach()
                 if self.train_cfg.get('gan_grad_step2_only', True)

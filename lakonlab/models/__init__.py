@@ -12,3 +12,4 @@ from .latent_diffusion_image_edit_gan import (
     LatentDiffusionImageEditStep2DinoFeatureGAN,
     LatentDiffusionImageEditSplitStageDinoFeatureGAN,
 )
+from .latent_diffusion_image_edit_dmd2 import LatentDiffusionImageEditDMD2

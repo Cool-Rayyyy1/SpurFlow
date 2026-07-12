@@ -145,6 +145,33 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
             return self.head_stages[self._active_head_stage]
         return self
 
+    def _checkpointed_block_forward(self, block, *args):
+        """Gradient-checkpointed block forward that is safe for dual-stage LoRA.
+
+        Non-reentrant checkpointing re-runs the block during backward. By then
+        ``_active_adapter`` may have been switched to a different stage (e.g.
+        step-1 blocks are recomputed after ``set_lora_stage('step2')``), so the
+        recomputed activations - and therefore all step-1 gradients - would be
+        computed with the wrong adapter. Capture the stage at forward time and
+        re-assert it inside the checkpointed function so recomputation matches
+        the original forward exactly.
+        """
+        dual = getattr(self, 'dual_stage_lora', False) or getattr(
+            self, 'dual_stage_heads', False)
+        stage = getattr(self, '_runtime_lora_stage', None)
+        if not dual or stage is None:
+            return self._gradient_checkpointing_func(block, *args)
+
+        from peft.tuners.tuners_utils import BaseTunerLayer
+
+        def block_with_stage(*block_args):
+            for m in block.modules():
+                if isinstance(m, BaseTunerLayer):
+                    m._active_adapter = [stage]
+            return block(*block_args)
+
+        return self._gradient_checkpointing_func(block_with_stage, *args)
+
     def _init_proj_out_deltax_layer(self, layer):
         deltax_init = getattr(self, 'deltax_init', 'zero')
         layer = layer.to_empty(device='cpu')
@@ -263,7 +290,7 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 
         for index_block, block in enumerate(self.transformer_blocks):
             if torch.is_grad_enabled() and self.gradient_checkpointing:
-                encoder_hidden_states, hidden_states = self._gradient_checkpointing_func(
+                encoder_hidden_states, hidden_states = self._checkpointed_block_forward(
                     block,
                     hidden_states,
                     encoder_hidden_states,
@@ -292,7 +319,7 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
 
         for index_block, block in enumerate(self.single_transformer_blocks):
             if torch.is_grad_enabled() and self.gradient_checkpointing:
-                encoder_hidden_states, hidden_states = self._gradient_checkpointing_func(
+                encoder_hidden_states, hidden_states = self._checkpointed_block_forward(
                     block,
                     hidden_states,
                     encoder_hidden_states,
@@ -358,6 +385,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         """
         from peft.tuners.tuners_utils import BaseTunerLayer
 
+        self._runtime_lora_stage = stage
         for module in self.modules():
             if isinstance(module, BaseTunerLayer):
                 module._active_adapter = [stage]

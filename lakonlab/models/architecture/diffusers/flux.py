@@ -129,6 +129,7 @@ class FluxTransformer2DModel(_FluxTransformer2DModel):
             mask: Optional[torch.Tensor] = None,
             masked_image_latents: Optional[torch.Tensor] = None,
             image_latents: Optional[torch.Tensor] = None,
+            classify_mode: bool = False,
             **kwargs):
         hidden_states = self.patchify(hidden_states)
         bs, c, h, w = hidden_states.size()
@@ -158,6 +159,31 @@ class FluxTransformer2DModel(_FluxTransformer2DModel):
             hidden_states = torch.cat(
                 [hidden_states.to(dtype=dtype), ref_hidden.to(dtype=dtype)], dim=1)
             img_ids = torch.cat([img_ids, ref_ids], dim=0)
+
+        if classify_mode:
+            # DMD2-style realism classification (`classify_forward` analogue):
+            # run the full transformer and capture the final image-token features
+            # (norm_out output, before proj_out) as the "bottleneck" representation.
+            captured = {}
+
+            def _capture_hook(module, args, output):
+                captured['features'] = output
+
+            hook_handle = self.norm_out.register_forward_hook(_capture_hook)
+            try:
+                super().forward(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states.to(dtype),
+                    pooled_projections=pooled_projections.to(dtype),
+                    timestep=timestep,
+                    img_ids=img_ids,
+                    txt_ids=txt_ids,
+                    return_dict=False,
+                    **kwargs)
+            finally:
+                hook_handle.remove()
+            # Keep only the target-image tokens (drop Kontext reference tokens).
+            return captured['features'][:, :target_seq_len]
 
         output = super().forward(
             hidden_states=hidden_states,

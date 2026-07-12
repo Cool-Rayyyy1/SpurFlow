@@ -65,16 +65,76 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
 
         return diffusion_args, diffusion_kwargs, prompt_embed_kwargs, bs, device
 
+    @staticmethod
+    def _cat_padded_prompt_embeds(neg_kwargs, pos_kwargs):
+        """Concat negative/positive Qwen VL prompt embeds along batch dim.
+
+        Unlike fixed-length T5 embeds, Qwen VL embeds have variable text length,
+        so both sides are right-padded (with mask=0) to a common length first.
+        """
+        import torch.nn.functional as F
+
+        max_len = max(
+            neg_kwargs['encoder_hidden_states'].size(1),
+            pos_kwargs['encoder_hidden_states'].size(1))
+
+        def _pad(embed_kwargs):
+            embeds = embed_kwargs['encoder_hidden_states']
+            mask = embed_kwargs['encoder_hidden_states_mask']
+            pad_len = max_len - embeds.size(1)
+            if pad_len > 0:
+                embeds = F.pad(embeds, (0, 0, 0, pad_len))
+                mask = F.pad(mask, (0, pad_len))
+            return embeds, mask
+
+        neg_embeds, neg_mask = _pad(neg_kwargs)
+        pos_embeds, pos_mask = _pad(pos_kwargs)
+        return dict(
+            encoder_hidden_states=torch.cat([neg_embeds, pos_embeds], dim=0),
+            encoder_hidden_states_mask=torch.cat([neg_mask, pos_mask], dim=0))
+
     def _prepare_train_minibatch_teacher_args(self, data, prompt_embed_kwargs, bs, device):
-        teacher_kwargs = super()._prepare_train_minibatch_teacher_args(
-            data, prompt_embed_kwargs, bs, device)
+        # Qwen-Image-Edit is not guidance-distilled: the teacher needs true CFG
+        # (official pipeline default true_cfg_scale=4.0 with negative prompt ' ')
+        # to produce an edit-following velocity field.
+        teacher_guidance_scale = self.train_cfg.get('teacher_guidance_scale', None)
+        teacher_use_guidance = (teacher_guidance_scale is not None
+                                and teacher_guidance_scale != 0.0 and teacher_guidance_scale != 1.0)
+
+        if teacher_use_guidance:
+            if 'negative_prompt_embed_kwargs' in data:
+                negative_prompt_embed_kwargs = data['negative_prompt_embed_kwargs']
+            else:
+                assert self.text_encoder is not None, \
+                    'Text encoder must be provided for encoding the teacher negative prompt.'
+                if 'negative_prompt_kwargs' in data:
+                    negative_prompt_kwargs = {k: v for k, v in data['negative_prompt_kwargs'].items()}
+                else:
+                    negative_prompt = self.train_cfg.get('teacher_negative_prompt', ' ')
+                    negative_prompt_kwargs = dict(prompt=[negative_prompt] * bs)
+                # Qwen VL prompt encoding requires the (resized) source image.
+                if 'condition_source_images' in data:
+                    negative_prompt_kwargs['condition_source_images'] = data['condition_source_images']
+                elif 'source_images' in data:
+                    negative_prompt_kwargs['source_images'] = data['source_images']
+                negative_prompt_embed_kwargs = self.text_encoder(**negative_prompt_kwargs)
+            teacher_kwargs = self._cat_padded_prompt_embeds(
+                negative_prompt_embed_kwargs, prompt_embed_kwargs)
+            # Match QwenImageEditPlusPipeline: after CFG extrapolation, rescale the
+            # combined velocity back to the conditional prediction's per-token norm
+            # (token = 2x2 packed latent patch, the transformer's packing unit).
+            teacher_kwargs.update(
+                guidance_scale=teacher_guidance_scale,
+                guidance_norm_rescale=self.train_cfg.get('teacher_guidance_norm_rescale', True),
+                guidance_norm_rescale_patch_size=2)
+        else:
+            teacher_kwargs = prompt_embed_kwargs.copy()
 
         if 'source_images' in data:
             assert self.vae is not None, 'VAE must be provided for encoding source images.'
             source_latents = self._encode_images(data['source_images'])
             image_latents = self.patchify(source_latents)
-            first_val = next(iter(teacher_kwargs.values()))
-            if isinstance(first_val, torch.Tensor) and first_val.size(0) == 2 * bs:
+            if teacher_use_guidance:
                 image_latents = torch.cat([image_latents, image_latents], dim=0)
             teacher_kwargs['image_latents'] = image_latents
 

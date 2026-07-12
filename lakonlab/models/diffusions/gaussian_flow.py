@@ -26,6 +26,25 @@ def guidance_jit(pos_mean, neg_mean, guidance_scale: float, orthogonal: bool = F
     return bias
 
 
+def cfg_norm_rescale(pos_mean, comb, patch_size=1, eps=1e-6):
+    """Qwen-style CFG norm rescale (QwenImageEditPlusPipeline):
+    ``comb * ||pos|| / ||comb||`` per token, where a token is a
+    ``patch_size x patch_size`` packed pixel group over all channels.
+    """
+    assert comb.dim() == 4, f'cfg_norm_rescale expects 4D tensors, got {comb.shape}.'
+    if patch_size > 1:
+        b, c, h, w = comb.size()
+        p = patch_size
+        pos_p = pos_mean.reshape(b, c, h // p, p, w // p, p)
+        comb_p = comb.reshape(b, c, h // p, p, w // p, p)
+        pos_norm = pos_p.pow(2).sum(dim=(1, 3, 5), keepdim=True).sqrt()
+        comb_norm = comb_p.pow(2).sum(dim=(1, 3, 5), keepdim=True).sqrt()
+        return (comb_p * (pos_norm / comb_norm.clamp(min=eps))).reshape(b, c, h, w)
+    pos_norm = pos_mean.norm(dim=1, keepdim=True)
+    comb_norm = comb.norm(dim=1, keepdim=True)
+    return comb * (pos_norm / comb_norm.clamp(min=eps))
+
+
 @MODULES.register_module()
 class GaussianFlow(nn.Module):
 
@@ -234,7 +253,9 @@ class GaussianFlow(nn.Module):
 
         return x_t.to(ori_dtype)
 
-    def forward_u(self, x_t=None, t=None, guidance_scale=1.0, test_cfg_override=dict(), **kwargs):
+    def forward_u(self, x_t=None, t=None, guidance_scale=1.0,
+                  guidance_norm_rescale=False, guidance_norm_rescale_patch_size=1,
+                  test_cfg_override=dict(), **kwargs):
         ori_dtype = x_t.dtype
         x_t = x_t.float()
         num_batches = x_t.size(0)
@@ -263,6 +284,10 @@ class GaussianFlow(nn.Module):
                     [num_batches] + [1] * (bias.dim() - 1))
                 bias = bias.masked_fill(~guidance_active, 0.0)
             denoising_output = mean_pos + bias
+            if guidance_norm_rescale:
+                denoising_output = cfg_norm_rescale(
+                    mean_pos, denoising_output,
+                    patch_size=guidance_norm_rescale_patch_size)
 
         return denoising_output.to(ori_dtype)
 

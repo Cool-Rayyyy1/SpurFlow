@@ -242,11 +242,25 @@ class EditFlowSampleImagesHook(Hook):
         if rank == 0:
             mmcv.mkdir_or_exist(out_dir)
 
+        # The sample dataloader must expose the FULL dataset on every rank
+        # (dist=False). A sharding sampler (e.g. DistributedSampler on 8/16
+        # ranks) would leave rank0 with only a couple of categories.
+        dataset_len = len(self.dataloader.dataset)
+        sampler = getattr(self.dataloader, 'sampler', None)
+        sampler_len = len(sampler) if sampler is not None else dataset_len
+        if rank == 0 and sampler_len < dataset_len:
+            runner.logger.warning(
+                f'EditFlowSampleImagesHook: dataloader sampler covers only '
+                f'{sampler_len}/{dataset_len} samples (sharded sampler?). '
+                f'Sample dump will miss categories; build the sample '
+                f'dataloader with dist=False.')
+
         runner.model.eval()
         saved = 0
+        saved_categories = set()
         if self.max_samples is None or int(self.max_samples) <= 0:
             max_steps = len(self.dataloader)
-            max_samples = len(self.dataloader.dataset)
+            max_samples = dataset_len
         else:
             max_samples = int(self.max_samples)
             max_steps = _max_val_steps(self.dataloader, max_samples)
@@ -275,6 +289,9 @@ class EditFlowSampleImagesHook(Hook):
                         if saved >= max_samples:
                             break
 
+                        category = _batch_item(data.get('category'), i)
+                        if category is not None:
+                            saved_categories.add(str(category))
                         sample_dir = osp.join(
                             out_dir, _sample_folder_name(data, i, saved))
                         mmcv.mkdir_or_exist(sample_dir)
@@ -309,6 +326,10 @@ class EditFlowSampleImagesHook(Hook):
                     torch.cuda.empty_cache()
 
         if rank == 0:
+            cat_info = (
+                f' across {len(saved_categories)} categories '
+                f'({", ".join(sorted(saved_categories))})'
+                if saved_categories else '')
             runner.logger.info(
-                f'Saved {saved} edit sample folder(s) to {out_dir}')
+                f'Saved {saved} edit sample folder(s){cat_info} to {out_dir}')
         runner.model.train()

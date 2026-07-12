@@ -12,6 +12,7 @@ from .arcflow_edit import (
 from .arcflow_edit_new import ArcFlowEditNewImitation
 from .arcflow_edit_alpha import ArcFlowEditAlphaImitation
 from .arcflow_edit_teacherinv_eps import ArcFlowEditTeacherInvEpsImitation
+from .arcflow_edit_dmd2 import ArcFlowEditDMD2Imitation
 
 __all__ = [
     'ContinuousTimeStepSampler', 'GaussianFlow', 'GMFlow',
@@ -21,4 +22,5 @@ __all__ = [
     'ArcFlowEditImitationStep2GAN',
     'ArcFlowEditNewImitation', 'ArcFlowEditAlphaImitation',
     'ArcFlowEditTeacherInvEpsImitation',
+    'ArcFlowEditDMD2Imitation',
 ]

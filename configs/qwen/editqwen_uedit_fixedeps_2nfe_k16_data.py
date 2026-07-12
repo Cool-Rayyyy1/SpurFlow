@@ -63,9 +63,19 @@ model = dict(
             rescale_mode='constant',
             rescale_cfg=dict(scale=30.0)),
         num_timesteps=1,
+        # Match the official Qwen-Image-Edit scheduler (FlowMatchEulerDiscrete,
+        # use_dynamic_shifting, exponential): logshift 0.5@256 -> 0.9@8192 tokens.
+        # seq_len passed to warp_t is latent h*w = 4x the transformer token count
+        # (2x2 packing), hence base/max_seq_len are scaled by 4.
+        # At ~1024^2 px (4096 tokens) this gives shift ~= e^0.694 ~= 2.0
+        # (the previous fixed shift=3.2 was FLUX's value, not Qwen's).
         timestep_sampler=dict(
             type='ContinuousTimeStepSampler',
-            shift=3.2,
+            use_dynamic_shifting=True,
+            base_seq_len=1024,
+            max_seq_len=32768,
+            base_logshift=0.5,
+            max_logshift=0.9,
             logit_normal_enable=False),
         denoising_mean_mode='U'),
     diffusion_use_ema=True,
@@ -102,6 +112,11 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
+    # Qwen-Image-Edit is not guidance-distilled; give the teacher true CFG
+    # (official pipeline default: true_cfg_scale=4.0, negative prompt ' ').
+    teacher_guidance_scale=4.0,
+    teacher_negative_prompt=' ',
+    teacher_guidance_norm_rescale=True,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,

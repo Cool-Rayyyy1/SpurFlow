@@ -19,24 +19,20 @@ from .arcflux_edit_new import _ArcFluxEditNewTransformer2DModel
 
 
 class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
-    """Soft alpha gate: one logit per sub-pixel in each DiT patch (patch_size^2).
+    """Four-channel sigmoid alpha head.
 
-    alpha = sigmoid(logits) in (0, 1), used as student_u = eps - alpha * x_ref - pred_delta.
+    Each DiT token predicts four logits. Sigmoid maps them to ``(0, 1)`` and
+    the four channels are averaged to one alpha value per patch.
     """
-
-    # Positive bias => sigmoid≈0.88 at init (near keep-ref / full x_ref).
-    ALPHA_INIT_BIAS = 2.0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Same channel layout as logweights: patch_size^2 scores per DiT token.
-        self.proj_out_alpha = nn.Linear(self.inner_dim, self.logweights_channels)
+        self.proj_out_alpha = nn.Linear(
+            self.inner_dim, self.logweights_channels)
 
     def init_weights(self):
         super().init_weights()
         constant_init(self.proj_out_alpha.to_empty(device='cpu'), val=0)
-        with torch.no_grad():
-            self.proj_out_alpha.bias.fill_(self.ALPHA_INIT_BIAS)
 
     def forward(
             self,
@@ -149,8 +145,9 @@ class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             bs, seq_len, self.num_gaussians, self.logweights_channels).log_softmax(dim=-2)
         out_log_gammas = self.proj_out_loggamma(hidden_states).reshape(
             bs, seq_len, self.num_gammas, self.logweights_channels)
-        out_alpha_logits = self.proj_out_alpha(hidden_states).reshape(
-            bs, seq_len, self.logweights_channels)
+        out_alpha = torch.sigmoid(
+            self.proj_out_alpha(hidden_states).reshape(
+                bs, seq_len, 1, self.logweights_channels))
 
         if USE_PEFT_BACKEND:
             unscale_lora_layers(self, lora_scale)
@@ -159,7 +156,7 @@ class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             deltax=out_deltax,
             logweights=out_logweights,
             loggammas=out_log_gammas,
-            alpha_logits=out_alpha_logits)
+            alpha=out_alpha)
 
 
 @MODULES.register_module()
@@ -316,15 +313,9 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
                 ).reshape(
                     bs, c_eps // (self.patch_size * self.patch_size),
                     h_eps * self.patch_size, w_eps * self.patch_size)
-            # alpha: (B, 1, patch^2, h, w) -> (B, 1, H, W) like logweights channels.
             alpha = mp['alpha']
-            _, _, c_alpha, h_alpha, w_alpha = alpha.size()
-            mp['alpha'] = alpha.reshape(
-                bs, 1, self.patch_size, self.patch_size, h_alpha, w_alpha
-            ).permute(
-                0, 1, 4, 2, 5, 3
-            ).reshape(
-                bs, 1, h_alpha * self.patch_size, w_alpha * self.patch_size)
+            mp['alpha'] = alpha.repeat_interleave(
+                self.patch_size, dim=-2).repeat_interleave(self.patch_size, dim=-1)
             mp['logweights'] = mp['logweights'].reshape(
                 bs, k, 1, self.patch_size, self.patch_size, h, w
             ).permute(
@@ -394,10 +385,9 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
                 txt_ids=txt_ids,
                 **kwargs)
 
-        # (B, seq, patch^2) -> (B, 1, patch^2, h, w); soft gate, no 1+alpha.
-        alpha_logits = output.alpha_logits[:, :target_seq_len].permute(0, 2, 1).reshape(
-            bs, self.logweights_channels, h, w)
-        alpha = torch.sigmoid(alpha_logits).unsqueeze(1)
+        alpha = output.alpha[:, :target_seq_len].permute(
+            0, 2, 3, 1).reshape(
+                bs, 1, self.logweights_channels, h, w).mean(dim=2)
 
         output_dict = dict(
             deltax=output.deltax[:, :target_seq_len].permute(0, 2, 3, 1).reshape(

@@ -1,4 +1,4 @@
-"""Load soft-sigmoid alpha checkpoints for inference."""
+"""Load four-channel sigmoid-alpha checkpoints for inference."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _ensure_path(path: str) -> None:
 
 
 def peek_alpha_head_dim(ckpt_path: Path) -> int:
-    """Return proj_out_alpha output dim (expected 4 = patch_size^2 for soft sigmoid)."""
+    """Return proj_out_alpha output dim (expected 4 for sigmoid alpha)."""
     import torch
 
     payload = torch.load(str(ckpt_path), map_location='cpu', weights_only=False)
@@ -32,15 +32,13 @@ def peek_alpha_head_dim(ckpt_path: Path) -> int:
     raise KeyError(f'proj_out_alpha not found in checkpoint: {ckpt_path}')
 
 
-def validate_softmax_alpha_ckpt(ckpt_path: Path) -> None:
-    """Validate soft-sigmoid alpha ckpt (kept name for call-site compatibility)."""
+def validate_continuous_alpha_ckpt(ckpt_path: Path) -> None:
     alpha_dim = peek_alpha_head_dim(ckpt_path)
     if alpha_dim != 4:
         raise ValueError(
             f'Checkpoint {ckpt_path} has proj_out_alpha dim={alpha_dim}; '
-            'expected 4 for soft sigmoid alpha (patch_size^2). '
-            'Binary dim=2 ckpts are incompatible; retrain with '
-            'train_flux_edit_fixedeps_alpha_data.sh.'
+            'expected 4 for sigmoid alpha (ArcFluxEditNewAlphaTransformer2DModel). '
+            'Use a checkpoint trained with train_flux_edit_fixedeps_alpha_data.sh.'
         )
 
 
@@ -53,7 +51,7 @@ def resolve_alpha_config(config_path: Path | None = None) -> Path:
 def build_alpha_vis_model(config_path: Path, ckpt_path: Path, device: str):
     ckpt_path = Path(ckpt_path)
     config_path = resolve_alpha_config(config_path)
-    validate_softmax_alpha_ckpt(ckpt_path)
+    validate_continuous_alpha_ckpt(ckpt_path)
     _ensure_path(str(EDITFLOW_ROOT))
 
     from lakonlab.apis.inference import init_model
