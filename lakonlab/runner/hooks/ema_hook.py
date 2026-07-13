@@ -97,13 +97,21 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
             return True
         return FSDPModule is not None and isinstance(module, FSDPModule)
 
+    def _unwrap_non_fsdp_module(self, module):
+        """Remove DDP-style wrappers while preserving FSDP contexts."""
+        while is_module_wrapper(module) and not self._is_fsdp_module(module):
+            module = module.module
+        return module
+
     def _update_module_pair(
             self, net, ema, runner, interp_cfg):
         ema_params = dict(ema.named_parameters())
+        matched_params = 0
         for name, p_net in net.named_parameters():
             p_ema = ema_params.get(name)
             if p_ema is None:
                 continue
+            matched_params += 1
             if self.trainable_only and not p_net.requires_grad:
                 continue
             if runner.iter < self.start_iter:
@@ -111,6 +119,10 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
             else:
                 p_ema.data.copy_(self.interp_func(
                     p_net, p_ema, trainable=p_net.requires_grad, **interp_cfg))
+        if ema_params and matched_params == 0:
+            raise RuntimeError(
+                'EMA update matched zero parameters. Check whether the online '
+                'and EMA modules have inconsistent wrapper prefixes.')
 
         ema_buffers = dict(ema.named_buffers())
         for name, b_net in net.named_buffers():
@@ -135,6 +147,13 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
             for key in self.module_keys:
                 net = rgetattr(model, get_ori_key(key))
                 ema = rgetattr(model, key)
+                # The custom DDP wrapper wraps trainable children (e.g.
+                # ``diffusion``) independently but leaves ``diffusion_ema``
+                # unwrapped. Unwrap those children so both sides expose the
+                # same parameter names; otherwise every EMA lookup silently
+                # misses due to the student's ``module.`` prefix.
+                net = self._unwrap_non_fsdp_module(net)
+                ema = self._unwrap_non_fsdp_module(ema)
                 net_fsdp = self._is_fsdp_module(net)
                 ema_fsdp = self._is_fsdp_module(ema)
                 if net_fsdp or ema_fsdp:

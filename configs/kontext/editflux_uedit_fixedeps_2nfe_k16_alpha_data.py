@@ -2,7 +2,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
 # `train_flux_edit_fixedeps_alpha_data.sh` -> gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k
 # Four-channel continuous alpha: alpha = sigmoid(raw head), zero-logit init.
-# The four channels are averaged to one gate per patch, then expanded spatially.
+# The four channels map independently to the four positions in each 2x2 patch.
 # It multiplies x_ref directly: student_u = path_epsilon - alpha * x_ref - pred_delta.
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
@@ -122,11 +122,24 @@ test_cfg = dict(
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    data='val',
+    # Fixed ImgEdit-Bench subset: 9 categories x 5 examples (seeded).
+    dataset=dict(
+        type='ImgEditBenchSample',
+        annotations_path=(
+            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            'annotations/basic_edit.json'),
+        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        categories=[
+            'action', 'add', 'adjust', 'background', 'compose',
+            'extract', 'remove', 'replace', 'style'],
+        samples_per_category=5,
+        seed=42,
+        resize_mode='kontext',
+    ),
     interval=save_interval,
     must_save_interval=must_save_interval,
     output_dir='samples',
-    max_samples=8,
+    max_samples=None,
     priority='LOW',
 )
 

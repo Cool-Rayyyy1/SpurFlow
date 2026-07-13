@@ -19,10 +19,10 @@ from .arcflux_edit_new import _ArcFluxEditNewTransformer2DModel
 
 
 class _ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
-    """Four-channel sigmoid alpha head.
+    """Per-subpixel sigmoid alpha head.
 
-    Each DiT token predicts four logits. Sigmoid maps them to ``(0, 1)`` and
-    the four channels are averaged to one alpha value per patch.
+    Each DiT token predicts ``patch_size ** 2`` logits. Sigmoid maps them to
+    ``(0, 1)``, and each channel controls its own latent position in the patch.
     """
 
     def __init__(self, *args, **kwargs):
@@ -314,8 +314,12 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
                     bs, c_eps // (self.patch_size * self.patch_size),
                     h_eps * self.patch_size, w_eps * self.patch_size)
             alpha = mp['alpha']
-            mp['alpha'] = alpha.repeat_interleave(
-                self.patch_size, dim=-2).repeat_interleave(self.patch_size, dim=-1)
+            mp['alpha'] = alpha.reshape(
+                bs, 1, 1, self.patch_size, self.patch_size, h, w
+            ).permute(
+                0, 1, 2, 5, 3, 6, 4
+            ).reshape(
+                bs, 1, h * self.patch_size, w * self.patch_size)
             mp['logweights'] = mp['logweights'].reshape(
                 bs, k, 1, self.patch_size, self.patch_size, h, w
             ).permute(
@@ -387,7 +391,7 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
 
         alpha = output.alpha[:, :target_seq_len].permute(
             0, 2, 3, 1).reshape(
-                bs, 1, self.logweights_channels, h, w).mean(dim=2)
+                bs, 1, self.logweights_channels, h, w)
 
         output_dict = dict(
             deltax=output.deltax[:, :target_seq_len].permute(0, 2, 3, 1).reshape(

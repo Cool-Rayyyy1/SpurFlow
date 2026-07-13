@@ -8,10 +8,10 @@ from .arcflow_edit_new import ArcFlowEditNewPolicy
 
 
 class ArcFlowEditNewAlphaPolicy(ArcFlowEditNewPolicy):
-    """Edit policy with continuous per-patch alpha gating the reference term.
+    """Edit policy with continuous per-latent-position alpha gating x_ref.
 
-    Alpha is produced by four sigmoid channels averaged per patch and expanded
-    to latent-pixel resolution. It multiplies x_ref directly (no 1 + alpha).
+    Each patch predicts four sigmoid channels, one for each position in its
+    2x2 latent area. Alpha multiplies x_ref directly (no 1 + alpha).
     student_u = path_epsilon - alpha * x_ref - pred_delta
     """
 

@@ -49,6 +49,12 @@ RUN_ID="${RUN_ID:-}"
 # Resume 20260618_055623 (latest.pth -> iter_20000.pth); override or FRESH=1 for a new run.
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-20260618_055623}"
 FRESH="${FRESH:-0}"
+if [[ "${FRESH}" == "1" ]]; then
+    # A fresh run must never inherit the default resume folder. Pin a new
+    # timestamped run id unless the caller supplied an explicit unique RUN_ID.
+    RESUME_RUN_DIR=""
+    RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
+fi
 # --------------------------------
 
 RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k"
@@ -117,7 +123,8 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow uedit fixed-eps DDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  run=${RUN_NAME}  ckpts=checkpoints/${RUN_NAME}/  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+ACTIVE_RUN_ID="${RESUME_RUN_DIR:-${RUN_ID:-auto}}"
+echo "Launching EditFlow uedit fixed-eps DDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  run=${RUN_NAME}/${ACTIVE_RUN_ID}  work_dir=work_dirs/${RUN_NAME}/${ACTIVE_RUN_ID}  ckpt_dir=checkpoints/${RUN_NAME}/${ACTIVE_RUN_ID}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data.py \

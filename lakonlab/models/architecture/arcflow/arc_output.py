@@ -56,7 +56,7 @@ class ArcFlowEditNewEpsModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditNewAlphaModelOutput(BaseOutput):
-    """EditFlow-new with four-channel sigmoid alpha."""
+    """EditFlow-new with one sigmoid alpha per latent position in each patch."""
 
     deltax: torch.Tensor
     logweights: torch.Tensor

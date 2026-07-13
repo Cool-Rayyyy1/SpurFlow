@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EditFlow fixed path epsilon + four-channel continuous alpha:
 #   pred_delta = mixture(deltax_k; weights, gammas) ~ x0_tgt - x_ref
-#   alpha = sigmoid(raw head); zero-logit init; four channels averaged per patch
+#   alpha = sigmoid(raw head); zero-logit init; one channel per 2x2 patch position
 #   student_u = path_epsilon - alpha * x_ref - pred_delta
 #   alpha init = 0.5; multiply x_ref directly (no 1 + alpha)
 #   DiT backbone from FLUX; deltax_init=kaiming; inherit_proj_out_deltax=False.
@@ -37,7 +37,7 @@ fi
 NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
-SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
+SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-100}"
 TOTAL_ITERS="${TOTAL_ITERS:-20000}"
 EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
