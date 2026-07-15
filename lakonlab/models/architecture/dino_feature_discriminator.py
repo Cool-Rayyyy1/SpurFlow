@@ -325,25 +325,23 @@ def sample_dino_alpha_mask_crop_specs(
         min_edit_mass_ratio: float = 0.002,
         min_component_pixels: int = 16,
         rng: Optional[torch.Generator] = None) -> Tuple[List[torch.Tensor], Dict[str, torch.Tensor]]:
-    """Shared crop specs: [full global] or [full global, random local, mask local]."""
+    """Shared crop specs with two modes (always global + one local slot).
+
+    Case A (``local_enabled=False``, prob ``p_disable_local``):
+        crops = [full global, random local]; use unpaired real images in GAN.
+    Case B (``local_enabled=True``):
+        crops = [full global, alpha-mask local]; use paired ref/edit real images.
+        Mask failure falls back to full global (no random local).
+    """
     batch_size = int(batch_size)
-    crop_specs: List[torch.Tensor] = [
-        torch.tensor(
-            [[0.0, 0.0, 1.0, 1.0]] * batch_size,
-            device=device,
-            dtype=torch.float32,
-        )
-    ]
+    global_spec = torch.tensor(
+        [[0.0, 0.0, 1.0, 1.0]] * batch_size,
+        device=device,
+        dtype=torch.float32,
+    )
+    # local_enabled=True -> mask-local mode (Case B); False -> random-local (Case A).
     local_enabled = torch.rand(batch_size, device=device, generator=rng) >= float(p_disable_local)
     mask_fallback = torch.zeros(batch_size, device=device, dtype=torch.bool)
-
-    if not bool(local_enabled.any()):
-        meta = dict(
-            local_enabled=local_enabled,
-            mask_fallback=mask_fallback,
-            num_active_crops=torch.zeros(batch_size, device=device, dtype=torch.int64),
-        )
-        return crop_specs, meta
 
     random_local = torch.tensor(
         [
@@ -353,7 +351,7 @@ def sample_dino_alpha_mask_crop_specs(
         device=device,
         dtype=torch.float32,
     )
-    mask_local = random_local.clone()
+    local_crop = random_local.clone()
     if alpha is not None:
         alpha_img = upsample_alpha_to_image(
             alpha, image_height, image_width, smooth=False, smooth_sigma=alpha_smooth_sigma)
@@ -376,18 +374,29 @@ def sample_dino_alpha_mask_crop_specs(
             )
             if spec is None:
                 mask_fallback[batch_idx] = True
+                local_crop[batch_idx] = global_spec[batch_idx]
             else:
-                mask_local[batch_idx] = torch.tensor(spec, device=device, dtype=torch.float32)
+                local_crop[batch_idx] = torch.tensor(spec, device=device, dtype=torch.float32)
     else:
         mask_fallback.fill_(True)
+        local_crop = torch.where(
+            local_enabled.unsqueeze(1),
+            global_spec,
+            random_local,
+        )
 
-    crop_specs.extend([random_local, mask_local])
-    num_active = torch.ones(batch_size, device=device, dtype=torch.int64)
-    num_active = torch.where(local_enabled, torch.full_like(num_active, 3), num_active)
+    # Per-sample: Case A keeps random local; Case B uses mask (or global fallback).
+    local_crop = torch.where(
+        local_enabled.unsqueeze(1),
+        local_crop,
+        random_local,
+    )
+    crop_specs = [global_spec, local_crop]
     meta = dict(
         local_enabled=local_enabled,
         mask_fallback=mask_fallback,
-        num_active_crops=num_active,
+        num_active_crops=torch.full(
+            (batch_size,), 2, device=device, dtype=torch.int64),
     )
     return crop_specs, meta
 
@@ -773,8 +782,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
     """DINO feature GAN with optional alpha-guided mask local crop."""
 
     CROP_GLOBAL = 0
-    CROP_RANDOM_LOCAL = 1
-    CROP_MASK_LOCAL = 2
+    CROP_LOCAL = 1
 
     def __init__(
             self,
@@ -798,7 +806,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             **kwargs):
         if use_mask_local_crop:
             kwargs.setdefault('num_global_crops', 1)
-            kwargs.setdefault('num_local_crops', 2)
+            kwargs.setdefault('num_local_crops', 1)
         super().__init__(*args, **kwargs)
         self.use_mask_local_crop = bool(use_mask_local_crop)
         self.p_disable_local = float(p_disable_local)
@@ -872,13 +880,20 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             self,
             crop_idx: int,
             batch_size: int,
-            device: torch.device) -> torch.Tensor:
+            device: torch.device,
+            *,
+            branch: Optional[str] = None) -> torch.Tensor:
         if crop_idx == self.CROP_GLOBAL or self._last_crop_meta is None:
             return torch.ones(batch_size, device=device, dtype=torch.bool)
         local_enabled = self._last_crop_meta.get('local_enabled')
         if local_enabled is None:
             return torch.ones(batch_size, device=device, dtype=torch.bool)
-        return local_enabled.to(device=device, dtype=torch.bool)
+        local_enabled = local_enabled.to(device=device, dtype=torch.bool)
+        if branch == 'random_local':
+            return ~local_enabled
+        if branch == 'mask_local':
+            return local_enabled
+        return torch.ones(batch_size, device=device, dtype=torch.bool)
 
     def _weighted_gan_loss(
             self,
@@ -886,7 +901,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             logits_fake: torch.Tensor,
             *,
             gan_mode: str) -> Tuple[torch.Tensor, Dict[str, float]]:
-        num_crops = max(len(self._crop_weights()), 1)
+        num_crops = 2
         batch_size = logits_fake.shape[0] // num_crops
         if batch_size * num_crops != logits_fake.shape[0]:
             num_crops = 1
@@ -900,11 +915,16 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
         total_loss = logits_fake.new_zeros(())
         total_weight = 0.0
         log_vars: Dict[str, float] = {}
-        crop_names = ('global', 'random_local', 'mask_local')[:num_crops]
-        for crop_idx, (weight, name) in enumerate(zip(self._crop_weights()[:num_crops], crop_names)):
+        branches = (
+            (self.CROP_GLOBAL, None, self.gan_global_weight, 'global'),
+            (self.CROP_LOCAL, 'random_local', self.gan_random_local_weight, 'random_local'),
+            (self.CROP_LOCAL, 'mask_local', self.gan_mask_local_weight, 'mask_local'),
+        )
+        for crop_idx, branch, weight, name in branches:
             if weight <= 0:
                 continue
-            active = self._crop_active_mask(crop_idx, batch_size, logits_fake.device)
+            active = self._crop_active_mask(
+                crop_idx, batch_size, logits_fake.device, branch=branch)
             if not bool(active.any()):
                 continue
             lf = logits_fake[crop_idx, active]
@@ -913,8 +933,9 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                 crop_loss = self._discriminator_loss(lr, lf)
             else:
                 crop_loss = self._generator_loss(lf)
+            active_frac = float(active.float().mean())
             total_loss = total_loss + (weight * crop_loss)
-            total_weight += weight * float(active.float().mean())
+            total_weight += weight * active_frac
             with torch.no_grad():
                 if gan_mode == 'discriminator':
                     log_vars[f'dino_gan_{name}_logits_real'] = float(lr.mean())

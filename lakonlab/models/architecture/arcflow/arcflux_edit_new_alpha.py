@@ -346,10 +346,7 @@ class ArcFluxEditNewAlphaTransformer2DModel(_ArcFluxEditNewAlphaTransformer2DMod
             **kwargs):
         hidden_states = self.patchify(hidden_states)
         bs, c, h, w = hidden_states.size()
-        if self.autocast_dtype is not None:
-            dtype = getattr(torch, self.autocast_dtype)
-        else:
-            dtype = hidden_states.dtype
+        dtype = self.x_embedder.weight.dtype
         device = hidden_states.device
         hidden_states = hidden_states.reshape(bs, c, h * w).permute(0, 2, 1)
         target_seq_len = hidden_states.size(1)

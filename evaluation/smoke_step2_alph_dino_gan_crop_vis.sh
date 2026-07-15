@@ -35,7 +35,7 @@ export CUDA_VISIBLE_DEVICES="${GPU_ID}"
 export KONTEXT_MODEL_PATH="${KONTEXT_MODEL}"
 export PICO_BANANA_PATH="${DATA_ROOT}"
 export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-kontext}"
-export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/evaluation/imgedit_bench:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_DIR}:${PROJECT_DIR}/evaluation:${PROJECT_DIR}/evaluation/imgedit_bench:${PYTHONPATH:-}"
 
 if [[ ! -f "${CKPT}" ]]; then
     echo "ERROR: checkpoint not found: ${CKPT}" >&2

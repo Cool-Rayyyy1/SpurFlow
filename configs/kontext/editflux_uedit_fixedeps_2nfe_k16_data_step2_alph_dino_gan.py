@@ -4,7 +4,7 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # Fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN with mask-guided local crop.
 # Fake: 2-NFE rollout -> step2 alpha + endpoint latent -> VAE decode.
 # Crops (shared real/fake): full global, random local, alpha-mask local (low alpha = edit).
-# GAN grads flow only through the final NFE step (gan_grad_step2_only).
+# GAN grads flow through both NFE steps (gan_grad_step2_only=False by default).
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -98,7 +98,7 @@ model = dict(
         global_input_size=224,
         local_input_size=224,
         num_global_crops=1,
-        num_local_crops=2,
+        num_local_crops=1,
         global_crop_scale=(0.5, 1.0),
         local_crop_scale=(0.125, 0.5),
         crop_aspect_ratio=(0.75, 1.3333333333),
@@ -142,7 +142,7 @@ train_cfg = dict(
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
     split_stage_gan_loss_weight=0.05,
-    gan_grad_step2_only=True,
+    gan_grad_step2_only=False,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,
@@ -190,11 +190,24 @@ fsdp_kwargs = dict(
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    data='val',
+    # Fixed ImgEdit-Bench subset: 9 categories x 5 examples (seeded).
+    dataset=dict(
+        type='ImgEditBenchSample',
+        annotations_path=(
+            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            'annotations/basic_edit.json'),
+        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        categories=[
+            'action', 'add', 'adjust', 'background', 'compose',
+            'extract', 'remove', 'replace', 'style'],
+        samples_per_category=5,
+        seed=42,
+        resize_mode='kontext',
+    ),
     interval=save_interval,
     must_save_interval=must_save_interval,
     output_dir='samples',
-    max_samples=8,
+    max_samples=None,
     priority='LOW',
 )
 

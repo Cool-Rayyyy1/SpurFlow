@@ -2,6 +2,8 @@
 
 import torch
 
+from typing import Dict, Optional
+
 from mmgen.models.builder import MODELS, build_module
 
 from .latent_diffusion_image_edit import LatentDiffusionImageEdit
@@ -232,6 +234,26 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
 class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditStep2DinoFeatureGAN):
     """Step-2 PIID + alpha-guided mask local crop DINO feature GAN."""
 
+    @staticmethod
+    def _prepare_gan_real_images(
+            real_images: torch.Tensor,
+            crop_meta: Optional[Dict[str, torch.Tensor]]) -> torch.Tensor:
+        """Case A (~local_enabled): unpaired shuffle; Case B (local_enabled): paired edit."""
+        if crop_meta is None or 'local_enabled' not in crop_meta:
+            return real_images
+        real_for_gan = real_images.clone()
+        local_enabled = crop_meta['local_enabled'].to(
+            device=real_images.device, dtype=torch.bool)
+        unpaired_mask = ~local_enabled
+        if not bool(unpaired_mask.any()):
+            return real_for_gan
+        batch_size = real_images.shape[0]
+        if batch_size <= 1:
+            return real_for_gan
+        perm = torch.randperm(batch_size, device=real_images.device)
+        real_for_gan[unpaired_mask] = real_images[perm][unpaired_mask]
+        return real_for_gan
+
     def train_minibatch(self, data, loss_scaler=None, running_status=None):
         bs, diffusion_args, diffusion_kwargs = self._prepare_train_minibatch_args(
             data, running_status)
@@ -266,9 +288,11 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 alpha=step2_alpha,
                 image_height=height,
                 image_width=width)
+            crop_meta = getattr(disc, '_last_crop_meta', None)
+            gan_real_images = self._prepare_gan_real_images(real_images, crop_meta)
 
             loss_d = self.discriminator(
-                real_images=real_images,
+                real_images=gan_real_images,
                 fake_images=fake_images.detach(),
                 gan_mode='discriminator',
                 crop_specs=crop_specs,
@@ -281,10 +305,13 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 loss_scaler.scale(loss_d).backward()
             with torch.no_grad():
                 real_logits = self.discriminator(
-                    real_images, step_indices=step_indices, crop_specs=crop_specs)
+                    gan_real_images, step_indices=step_indices, crop_specs=crop_specs)
                 fake_logits = self.discriminator(
                     fake_images.detach(), step_indices=step_indices, crop_specs=crop_specs)
                 d_extra = getattr(disc, '_last_gan_extra', None) or {}
+                if crop_meta is not None and 'local_enabled' in crop_meta:
+                    d_extra['gan_unpaired_real_rate'] = float(
+                        (~crop_meta['local_enabled']).float().mean())
                 d_log_vars = disc.build_log_vars(
                     real_logits, fake_logits, loss_d, extra=d_extra)
             log_vars.update(d_log_vars)

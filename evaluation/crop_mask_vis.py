@@ -123,32 +123,40 @@ def render_crop_boxes_overlay(
         local_enabled: bool = True,
         title: str = 'GAN crop boxes (shared real/fake)',
 ) -> Image.Image:
-    """Draw global / random-local / mask-local boxes on source."""
+    """Draw global + second crop (random-local or mask-local per sample mode)."""
     canvas = src_pil.convert('RGB').copy()
     draw = ImageDraw.Draw(canvas)
     width, height = canvas.size
     font = _load_font(13)
-    names = ('global', 'random_local', 'mask_local')
-    for crop_idx, specs in enumerate(crop_specs):
-        if crop_idx > 0 and not local_enabled:
-            break
-        name = names[crop_idx] if crop_idx < len(names) else f'crop{crop_idx}'
-        color = CROP_COLORS.get(name, (255, 255, 255))
-        spec = specs[batch_idx].tolist()
-        x0, y0, x1, y1 = _spec_to_pixel_box(spec, width, height)
-        label = name
-        if name == 'mask_local' and mask_fallback:
-            label = 'mask_local (fallback→random)'
+
+    if len(crop_specs) >= 1:
+        x0, y0, x1, y1 = _spec_to_pixel_box(crop_specs[0][batch_idx].tolist(), width, height)
+        color = CROP_COLORS['global']
         for offset in (0, 1):
             draw.rectangle(
                 [(x0 - offset, y0 - offset), (x1 + offset, y1 + offset)],
-                outline=color,
-                width=3,
-            )
+                outline=color, width=3)
+        draw.text((x0 + 4, max(y0 - 18, 2)), 'global', fill=color, font=font)
+
+    if len(crop_specs) >= 2:
+        x0, y0, x1, y1 = _spec_to_pixel_box(crop_specs[1][batch_idx].tolist(), width, height)
+        if local_enabled:
+            color = CROP_COLORS['mask_local']
+            label = 'mask_local' if not mask_fallback else 'mask_local (fallback→global)'
+        else:
+            color = CROP_COLORS['random_local']
+            label = 'random_local'
+        for offset in (0, 1):
+            draw.rectangle(
+                [(x0 - offset, y0 - offset), (x1 + offset, y1 + offset)],
+                outline=color, width=3)
         draw.text((x0 + 4, max(y0 - 18, 2)), label, fill=color, font=font)
+
+    mode = 'B: mask+paired' if local_enabled else 'A: random+unpaired'
     subtitle = (
-        f'green=global full · blue=random local · red=mask local · '
-        f'local_enabled={local_enabled} · mask_fallback={mask_fallback}'
+        f'{mode} · green=global · '
+        f'{"red=mask local" if local_enabled else "blue=random local"} · '
+        f'mask_fallback={mask_fallback}'
     )
     return _compose_with_header(canvas, title=title, subtitle=subtitle, colorbar_range=None)
 
@@ -190,9 +198,13 @@ def make_crop_panel(
         local_enabled=local_enabled,
     )
     overlay_body = overlay.crop((0, 52, overlay.width, overlay.height))
-    if local_enabled and len(crop_specs) >= 3:
-        mask_spec = crop_specs[2][batch_idx].tolist()
+    if local_enabled and len(crop_specs) >= 2:
+        mask_spec = crop_specs[1][batch_idx].tolist()
         mask_zoom = crop_region_from_spec(src_pil, mask_spec).resize(
+            (src_pil.width, src_pil.height), Image.Resampling.BICUBIC)
+    elif not local_enabled and len(crop_specs) >= 2:
+        random_spec = crop_specs[1][batch_idx].tolist()
+        mask_zoom = crop_region_from_spec(src_pil, random_spec).resize(
             (src_pil.width, src_pil.height), Image.Resampling.BICUBIC)
     else:
         mask_zoom = Image.new('RGB', src_pil.size, (24, 28, 36))

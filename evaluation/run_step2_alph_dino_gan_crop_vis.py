@@ -125,7 +125,7 @@ def main() -> None:
     model.eval()
 
     for idx, record in enumerate(tqdm(records, desc='crop-vis')):
-        sample_id = f'val_{args.val_start_ind + idx:05d}'
+        sample_id = f'val_{idx:04d}'
         out_dir = args.output_dir / sample_id
         panel_path = out_dir / 'crop_panel.png'
         if args.skip_existing and panel_path.is_file():
@@ -204,10 +204,10 @@ def main() -> None:
             local_enabled=local_enabled,
         ).save(out_dir / 'crop_boxes_overlay.png')
 
-        if local_enabled and len(crop_specs) >= 3:
+        if len(crop_specs) >= 2:
             crop_region_from_spec(
-                src_pil, crop_specs[2][0].tolist(),
-            ).save(out_dir / 'mask_crop_zoom.png')
+                src_pil, crop_specs[1][0].tolist(),
+            ).save(out_dir / 'local_crop_zoom.png')
 
         make_crop_panel(
             src_pil,
@@ -224,9 +224,11 @@ def main() -> None:
             'mask_fallback': mask_fallback,
             'global': crop_specs[0][0].tolist(),
         }
-        if local_enabled and len(crop_specs) >= 3:
-            spec_json['random_local'] = crop_specs[1][0].tolist()
-            spec_json['mask_local'] = crop_specs[2][0].tolist()
+        if len(crop_specs) >= 2:
+            if local_enabled:
+                spec_json['mask_local'] = crop_specs[1][0].tolist()
+            else:
+                spec_json['random_local'] = crop_specs[1][0].tolist()
         (out_dir / 'crop_specs.json').write_text(
             json.dumps(spec_json, indent=2), encoding='utf-8')
 

@@ -2,10 +2,11 @@
 # EditFlow fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN:
 #   Standard random-segment PIID with ArcFlowEditNewAlpha (low alpha ~ edit region).
 #   Step-2 endpoint: Kontext VAE decode -> shared crop specs:
-#     [full global] or [global, random local, alpha-mask local].
-#   Mask local crop uses step-2 alpha.detach() (edit mass = ref - alpha); fallback to random local.
-#   GAN grads update the shared student only through the final NFE step (gan_grad_step2_only).
-#   Loss: logistic softplus with separate global / random-local / mask-local weights.
+#   Case A (local_enabled=False): global + random local, unpaired real images.
+#   Case B (local_enabled=True): global + alpha-mask local, paired ref/edit.
+#   Mask local crop uses step-2 alpha.detach() (edit mass = ref - alpha); fallback to global full.
+#   GAN grads flow through both 2-NFE rollout steps (gan_grad_step2_only=false by default).
+#   Sample eval: ImgEdit-Bench 9 categories x 5 (same as train_flux_edit_fixedeps_alpha_data.sh).
 #
 #   Uses FSDP (configs/kontext/_fsdp_train.py) to shard diffusion/teacher.
 #   VAE + DINO discriminator stay replicated per GPU.
@@ -40,7 +41,7 @@ fi
 NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
-SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
+SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-100}"
 TOTAL_ITERS="${TOTAL_ITERS:-25000}"
 EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
@@ -50,16 +51,16 @@ GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
-PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/model/gmkontext_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k_20260713/iter_5000.pth}"
+PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/model/gmkontext_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k_20260713/iter_10000.pth}"
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
 STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.05}"
-GAN_GRAD_STEP2_ONLY="${GAN_GRAD_STEP2_ONLY:-true}"
+GAN_GRAD_STEP2_ONLY="${GAN_GRAD_STEP2_ONLY:-false}"
 NUM_DECAY_ITERS="${NUM_DECAY_ITERS:-0}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
 DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-23}"
-P_DISABLE_LOCAL="${P_DISABLE_LOCAL:-0.0}"
+P_DISABLE_LOCAL="${P_DISABLE_LOCAL:-0.3}"
 EDIT_IS_LOW_ALPHA="${EDIT_IS_LOW_ALPHA:-true}"
 ALPHA_SMOOTH_SIGMA="${ALPHA_SMOOTH_SIGMA:-2.0}"
 MASS_THRESHOLD_PERCENTILE="${MASS_THRESHOLD_PERCENTILE:-30.0}"
@@ -169,7 +170,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  gan_weight=${STEP2_GAN_WEIGHT}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  gan_weight=${STEP2_GAN_WEIGHT}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_alph_dino_gan.py \
