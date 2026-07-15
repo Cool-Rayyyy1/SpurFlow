@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 import mmcv
-from typing import Union, Callable, Optional, List, Sequence
+from typing import Union, Callable, Optional, List
 from collections import OrderedDict
 from tempfile import TemporaryDirectory
 from torch.optim import Optimizer
@@ -24,7 +24,7 @@ from safetensors.torch import load_file, load
 from diffusers.utils.hub_utils import _get_checkpoint_shard_files
 from mmcv.runner import CheckpointLoader, get_dist_info, _load_checkpoint
 from mmcv.parallel import is_module_wrapper
-from lakonlab.utils import download_from_huggingface, rgetattr
+from lakonlab.utils import clone_params, download_from_huggingface, rgetattr
 from lakonlab.utils.io_utils import S3Backend, TMP_DIR
 from lakonlab.parallel import FSDP2Wrapper
 
@@ -56,6 +56,18 @@ _DUAL_STAGE_HEAD_NAMES = (
     'proj_out_logweights',
     'proj_out_loggamma',
 )
+
+
+def _model_requires_dual_stage_state_dict_remap(module: nn.Module) -> bool:
+    """Return True when the target model expects step1/step2 LoRA and head keys."""
+    if is_module_wrapper(module):
+        module = module.module
+    for submodule in module.modules():
+        if getattr(submodule, 'dual_stage_lora', False):
+            return True
+        if getattr(submodule, 'dual_stage_heads', False):
+            return True
+    return False
 
 
 def remap_single_heads_to_dual_stage_state_dict(
@@ -125,9 +137,22 @@ def remap_single_lora_to_dual_stage_state_dict(
 
 def _filter_checkpoint_key_warnings(
         missing_keys: List[str],
-        unexpected_keys: List[str]) -> tuple[List[str], List[str]]:
+        unexpected_keys: List[str],
+        state_dict_keys: Optional[List[str]] = None) -> tuple[List[str], List[str]]:
     """Drop benign mismatches from trainable-only resume checkpoints."""
     missing_keys = [k for k in missing_keys if _is_trainable_state_key(k)]
+    # Trainable-only ckpts historically omit diffusion_ema.*; those are filled
+    # by syncing online student weights after load.
+    if state_dict_keys is not None:
+        has_ema = any(
+            k.startswith('diffusion_ema.') or k.startswith('diffusion_ema2.')
+            for k in state_dict_keys)
+        if not has_ema:
+            missing_keys = [
+                k for k in missing_keys
+                if not (
+                    k.startswith('diffusion_ema.')
+                    or k.startswith('diffusion_ema2.'))]
     unexpected_keys = [
         k for k in unexpected_keys
         if not (
@@ -137,6 +162,53 @@ def _filter_checkpoint_key_warnings(
         )
     ]
     return missing_keys, unexpected_keys
+
+
+def _online_key_from_ema_key(ema_key: str) -> str:
+    """Map ``diffusion_ema`` / ``diffusion_ema2`` module name to the online module."""
+    if ema_key.endswith('_ema2'):
+        return ema_key[:-5]
+    if ema_key.endswith('_ema'):
+        return ema_key[:-4]
+    raise ValueError(f'Invalid EMA module key: {ema_key}')
+
+
+def _unwrap_non_fsdp_module(module: nn.Module) -> nn.Module:
+    while is_module_wrapper(module) and not isinstance(module, FSDP):
+        module = module.module
+    return module
+
+
+def sync_ema_from_online_if_missing(
+        model: nn.Module,
+        state_dict: Union[dict, OrderedDict],
+        logger: Optional[logging.Logger] = None) -> None:
+    """Copy online student weights into EMA when the checkpoint has no EMA keys.
+
+    With ``ckpt_trainable_only=True``, EMA params (``requires_grad=False``) are
+    omitted from older checkpoints. After loading the student, reinitialize EMA
+    from the restored online weights so sample_eval is not left on init weights.
+    """
+    root = model.module if is_module_wrapper(model) else model
+    for name, ema_module in list(root.named_children()):
+        if not (name.endswith('_ema') or name.endswith('_ema2')):
+            continue
+        prefix = name + '.'
+        if any(k.startswith(prefix) for k in state_dict):
+            continue
+        try:
+            online_name = _online_key_from_ema_key(name)
+        except ValueError:
+            continue
+        if not hasattr(root, online_name):
+            continue
+        net = _unwrap_non_fsdp_module(getattr(root, online_name))
+        ema = _unwrap_non_fsdp_module(ema_module)
+        clone_params(ema, net)
+        if logger is not None:
+            logger.info(
+                f'Synced {name} from {online_name} '
+                f'(EMA weights absent in checkpoint).')
 
 
 def fsdp_load_full_state_dict(module: FSDP,
@@ -216,7 +288,7 @@ def load_full_state_dict(module: nn.Module,
         key for key in missing_keys if 'num_batches_tracked' not in key
     ]
     missing_keys, unexpected_keys = _filter_checkpoint_key_warnings(
-        missing_keys, unexpected_keys)
+        missing_keys, unexpected_keys, state_dict_keys=list(state_dict.keys()))
 
     if unexpected_keys:
         err_msg.append('unexpected key in source '
@@ -417,39 +489,6 @@ def load_from_local(filename, map_location=None):
     return ckpt
 
 
-def promote_non_ema_to_ema_state_dict(
-        state_dict: Union[dict, OrderedDict],
-        ema_module_keys: Sequence[str] = ('diffusion_ema',)) -> OrderedDict:
-    """Duplicate ``<ori>.*`` weights into ``<ema>.*`` when the source lacks EMA keys.
-
-    Trainable-only alpha / fixed-eps checkpoints often store student weights under
-    ``diffusion.*`` only. Training configs with ``diffusion_use_ema=True`` still
-    instantiate a separate ``diffusion_ema`` module that must be populated at load.
-    """
-    state_dict = OrderedDict(state_dict)
-    promoted_any = False
-    for ema_key in ema_module_keys:
-        if ema_key.endswith('_ema'):
-            ori_key = ema_key[:-4]
-        elif ema_key.endswith('_ema2'):
-            ori_key = ema_key[:-5]
-        else:
-            continue
-        ema_prefix = f'{ema_key}.'
-        ori_prefix = f'{ori_key}.'
-        if any(k.startswith(ema_prefix) for k in state_dict):
-            continue
-        promoted = OrderedDict()
-        for key, value in state_dict.items():
-            if key.startswith(ori_prefix):
-                promoted[ema_prefix + key[len(ori_prefix):]] = value
-        if promoted:
-            state_dict.update(promoted)
-            promoted_any = True
-    state_dict._promoted_non_ema_to_ema = promoted_any  # type: ignore[attr-defined]
-    return state_dict
-
-
 def load_checkpoint(model: torch.nn.Module,
                     filename: str,
                     map_location: Union[str, Callable, None] = None,
@@ -477,19 +516,14 @@ def load_checkpoint(model: torch.nn.Module,
     # Keep metadata in state_dict
     state_dict._metadata = metadata
 
-    state_dict = promote_non_ema_to_ema_state_dict(state_dict)
-    if getattr(state_dict, '_promoted_non_ema_to_ema', False) and logger is not None:
-        logger.info(
-            'Checkpoint lacks diffusion_ema.* keys; promoted matching diffusion.* '
-            'weights for EMA modules.')
-
-    state_dict = remap_single_lora_to_dual_stage_state_dict(state_dict)
-    state_dict = remap_single_heads_to_dual_stage_state_dict(state_dict)
-    if logger is not None and any(
-            f'.lora_A.{stage}.' in k or f'.head_stages.{stage}.' in k
-            for k in state_dict for stage in ('step1', 'step2')):
-        logger.info(
-            'Expanded single LoRA / head weights to dual-stage step1/step2 modules.')
+    if _model_requires_dual_stage_state_dict_remap(model):
+        state_dict = remap_single_lora_to_dual_stage_state_dict(state_dict)
+        state_dict = remap_single_heads_to_dual_stage_state_dict(state_dict)
+        if logger is not None and any(
+                f'.lora_A.{stage}.' in k or f'.head_stages.{stage}.' in k
+                for k in state_dict for stage in ('step1', 'step2')):
+            logger.info(
+                'Expanded single LoRA / head weights to dual-stage step1/step2 modules.')
 
     # load state_dict
     if isinstance(model, FSDP2Wrapper):  # FSDP2
@@ -505,12 +539,24 @@ def load_checkpoint(model: torch.nn.Module,
                     strict=strict))
     else:  # FSDP1, DDP, or non-distributed model
         load_full_state_dict(model, state_dict, strict, logger, assign)
+
+    # Older trainable-only checkpoints omit EMA; copy restored student → EMA.
+    sync_ema_from_online_if_missing(model, state_dict, logger=logger)
     return checkpoint
 
 
 def _save_to_state_dict(module, destination, prefix, keep_vars, trainable_only=False, cpu_offload=False):
     for name, param in module._parameters.items():
-        if param is not None and (not trainable_only or param.requires_grad):
+        full_key = prefix + name
+        # Keep EMA LoRA / head weights even though they are frozen copies
+        # (requires_grad=False); otherwise resume leaves EMA on init weights.
+        keep = (
+            param is not None
+            and (
+                not trainable_only
+                or param.requires_grad
+                or _is_trainable_state_key(full_key)))
+        if keep:
             if not keep_vars:
                 param = param.detach()
             if isinstance(param, DTensor):
@@ -518,11 +564,11 @@ def _save_to_state_dict(module, destination, prefix, keep_vars, trainable_only=F
                 if torch.distributed.get_rank() == 0:  # only save the full tensor on rank 0
                     if cpu_offload:
                         param = param.cpu()
-                    destination[prefix + name] = param
+                    destination[full_key] = param
             else:
                 if cpu_offload:
                     param = param.cpu()
-                destination[prefix + name] = param
+                destination[full_key] = param
     for name, buf in module._buffers.items():
         if buf is not None:
             if not keep_vars:
