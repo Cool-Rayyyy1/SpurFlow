@@ -251,8 +251,9 @@ def render_alpha_grid_blank(
     step_label: Optional[str] = None,
     patch_image: int = PATCH_IMAGE,
     bg_color: Tuple[int, int, int] = (255, 255, 255),
+    continuous: bool = False,
 ) -> Image.Image:
-    """Blank canvas + grid + per-patch alpha labels (softmax binary {0,1})."""
+    """Blank canvas + grid + per-patch alpha labels (binary {0,1} or continuous sigmoid)."""
     grid, n_ph, n_pw = patch_alpha_means(alpha_latent, img_height, img_width, patch_image=patch_image)
 
     valid = grid[~np.isnan(grid)]
@@ -295,14 +296,16 @@ def render_alpha_grid_blank(
     out = Image.new("RGB", (img_width, img_height + header_h), bg_color)
     out.paste(canvas, (0, header_h))
     header = ImageDraw.Draw(out)
-    title = f"alpha (0/1) per {patch_image}px cell"
+    alpha_kind = "continuous sigmoid" if continuous else "0/1"
+    title = f"alpha ({alpha_kind}) per {patch_image}px cell"
     if step_label:
         title = f"{title}  {step_label}"
     header.text((8, 6), title, fill=(0, 0, 0), font=_load_font(14))
+    init_note = "init=0.5" if continuous else "init=1 (on)"
     legend = (
         f"grid {n_ph}x{n_pw}   "
         f"min {fmt_alpha_value(vmin)}  max {fmt_alpha_value(vmax)}  "
-        f"mean {fmt_alpha_value(float(np.nanmean(grid)))}   init=1 (on)"
+        f"mean {fmt_alpha_value(float(np.nanmean(grid)))}   {init_note}"
     )
     header.text((8, 20), legend, fill=(90, 90, 90), font=_load_font(10))
     return out
@@ -372,6 +375,41 @@ def render_alpha_heatmap(
 # Soft binary colors for alpha∈{0,1} visualizations (v5).
 ALPHA0_RGB = (220, 60, 60)    # red  = drop x_ref (edit freely)
 ALPHA1_RGB = (40, 170, 90)    # green = keep x_ref
+
+
+def render_continuous_alpha_on_src(
+    src_pil: Image.Image,
+    alpha_latent: torch.Tensor,
+    *,
+    blend: float = 0.42,
+    step_label: Optional[str] = None,
+    title_prefix: str = "Alpha heatmap",
+    draw_grid: bool = True,
+) -> Image.Image:
+    """Continuous sigmoid α colormap tint over source so the image stays visible."""
+    src = np.array(src_pil.convert("RGB"), dtype=np.float32)
+    img_h, img_w = src.shape[:2]
+    alpha_up = upsample_alpha_to_image(alpha_latent, img_h, img_w, smooth=True)
+    vmin, vmax = _alpha_display_range(alpha_up)
+    heat_rgb = _alpha_colormap_rgb(alpha_up, vmin, vmax).astype(np.float32)
+
+    out = src * (1.0 - blend) + heat_rgb * blend
+    out = np.clip(out, 0, 255).astype(np.uint8)
+    body = Image.fromarray(out, mode="RGB")
+    if draw_grid:
+        body = _patch_grid_overlay(body)
+
+    title = f"{title_prefix}  (continuous α)"
+    if step_label:
+        title = f"{title}  ·  {step_label}"
+    subtitle = (
+        f"min {fmt_alpha_value(float(np.min(alpha_up)))}  "
+        f"max {fmt_alpha_value(float(np.max(alpha_up)))}  "
+        f"mean {fmt_alpha_value(float(np.mean(alpha_up)))}  ·  "
+        f"blend={blend:.2f}"
+    )
+    return _compose_with_header(
+        body, title=title, subtitle=subtitle, colorbar_range=(vmin, vmax))
 
 
 def render_binary_alpha_on_src(

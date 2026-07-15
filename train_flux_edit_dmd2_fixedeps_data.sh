@@ -52,6 +52,10 @@ GPU_IDS="${GPU_IDS:-0,1}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
+if [[ "${FRESH}" == "1" ]]; then
+    RESUME_RUN_DIR=""
+    RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
+fi
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-}"
 # Official DMD2: dfake_gen_update_ratio=5, gen_cls_loss_weight=5e-3,
 # guidance_cls_loss_weight=1e-2
@@ -70,6 +74,7 @@ RUN_NAME="gmkontext_dmd2_uedit_fixedeps_k16_${NFE}nfe_pico400k"
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 export KONTEXT_MODEL_PATH="${KONTEXT_MODEL}"
 export PICO_BANANA_PATH="${DATA_ROOT}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 CKPT_BASE="checkpoints/${RUN_NAME}"
 LOAD_FROM=""
@@ -141,7 +146,8 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching DMD2 edit DDP/FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  run=${RUN_NAME}  nfe=${NFE}  gen_ratio=${GEN_UPDATE_RATIO}  gan_w=${GAN_WEIGHT}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+ACTIVE_RUN_ID="${RESUME_RUN_DIR:-${RUN_ID:-auto}}"
+echo "Launching DMD2 edit DDP/FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  run=${RUN_NAME}/${ACTIVE_RUN_ID}  work_dir=work_dirs/${RUN_NAME}/${ACTIVE_RUN_ID}  ckpt_dir=checkpoints/${RUN_NAME}/${ACTIVE_RUN_ID}  nfe=${NFE}  gen_ratio=${GEN_UPDATE_RATIO}  gan_w=${GAN_WEIGHT}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_dmd2_uedit_fixedeps_2nfe_k16_data.py \

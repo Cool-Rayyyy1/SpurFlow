@@ -1,6 +1,7 @@
 import torch
 import mmcv
 from collections import OrderedDict
+from typing import Union
 from mmgen.models import build_model
 from lakonlab.runner.checkpoint import _load_checkpoint, load_full_state_dict
 from lakonlab.runner.hooks.ema_hook import get_ori_key
@@ -24,6 +25,34 @@ def _drop_non_ema_state_dict_keys(state_dict, module_keys: list[str]) -> Ordered
     return OrderedDict(
         (key, value) for key, value in state_dict.items() if not key.startswith(drop_prefixes)
     )
+
+
+def _prepare_ema_state_dict(
+        state_dict: Union[dict, OrderedDict],
+        module_keys: list[str]) -> OrderedDict:
+    """Normalize checkpoint keys for ema_only inference.
+
+    Training checkpoints often save trainable weights under ``diffusion.*`` only.
+    Inference uses ``diffusion_ema``; promote non-EMA keys when EMA keys are absent.
+    """
+    state_dict = OrderedDict(state_dict)
+    for ema_key in module_keys:
+        ori_key = get_ori_key(ema_key)
+        ema_prefix = f"{ema_key}."
+        ori_prefix = f"{ori_key}."
+        has_ema = any(k.startswith(ema_prefix) for k in state_dict)
+        if has_ema:
+            state_dict = _drop_non_ema_state_dict_keys(state_dict, [ema_key])
+            continue
+
+        promoted = OrderedDict()
+        for key, value in state_dict.items():
+            if key.startswith(ori_prefix):
+                promoted[ema_prefix + key[len(ori_prefix):]] = value
+            elif not key.startswith(ema_prefix):
+                promoted[key] = value
+        state_dict = promoted
+    return state_dict
 
 
 def init_model(
@@ -51,7 +80,7 @@ def init_model(
         if ema_only and ema_module_keys:
             ckpt = _load_checkpoint(checkpoint, map_location='cpu')
             state_dict = ckpt.get('state_dict', ckpt)
-            state_dict = _drop_non_ema_state_dict_keys(state_dict, ema_module_keys)
+            state_dict = _prepare_ema_state_dict(state_dict, ema_module_keys)
             load_full_state_dict(model, state_dict, strict=False)
         else:
             from mmcv.runner import load_checkpoint

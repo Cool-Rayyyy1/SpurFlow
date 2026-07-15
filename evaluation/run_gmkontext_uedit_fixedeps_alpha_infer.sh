@@ -3,12 +3,11 @@
 #
 # Model: ArcFluxEditNewAlphaTransformer2DModel + fixed-path epsilon training:
 #   pred_delta ~ x0_tgt - x_ref
-#   alpha in {0,1} via 2-way softmax (eval threshold 0.5)
+#   alpha = sigmoid(raw head), four channels per 2x2 patch (continuous, not forced 0/1)
 #   student_u = path_epsilon - alpha * x_ref - pred_delta
 # Preprocessing: STUDENT_RESIZE_MODE=kontext (nearest FLUX Kontext bucket, matches training).
-# Default ckpt: .../gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k/iter_8500.pth
-# Requires soft-sigmoid alpha ckpt (proj_out_alpha dim=4 = patch_size^2).
-# Binary dim=2 ckpts are incompatible.
+# Default ckpt: train_flux_edit_fixedeps_alpha_data.sh -> checkpoints/model/.../iter_5000.pth
+# Requires alpha ckpt (proj_out_alpha dim=4). Non-alpha fixedeps ckpts are incompatible.
 #
 # Do NOT use run_gmkontext_uedit_fixedeps_infer.sh — that script targets the 3-head model
 # without proj_out_alpha (editflux_uedit_fixedeps_2nfe_k16_data.py).
@@ -30,8 +29,8 @@ EDITFLOW_DIR="${EDITFLOW_DIR:-${WORKSPACE_ROOT}/EditFlow}"
 
 export RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k}"
 export CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data.py}"
-export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha/model/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k/iter_8500.pth}"
-export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_iter_8500}"
+export CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/model/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_20260713/iter_5000.pth}"
+export RUN_TAG="${RUN_TAG:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_20260713_iter_5000}"
 export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-kontext}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export NUM_GPUS="${NUM_GPUS:-2}"

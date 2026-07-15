@@ -762,7 +762,13 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
     shared student weights only through the final NFE step.
     """
 
-    def _rollout_nfe_latent(self, x_ref, path_epsilon, kwargs, grad_step2_only=None):
+    def _rollout_nfe_latent(
+            self,
+            x_ref,
+            path_epsilon,
+            kwargs,
+            grad_step2_only=None,
+            return_step2_alpha=False):
         device = path_epsilon.device
         num_batches = path_epsilon.size(0)
         seq_len = path_epsilon.shape[2:].numel()
@@ -782,6 +788,7 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
         sigma_t_src = self.timestep_sampler.warp_t(raw_t_src, seq_len=seq_len).reshape(
             num_batches, *((ndim - 1) * [1]))
         t_src = sigma_t_src.flatten() * self.num_timesteps
+        step2_alpha = None
 
         for step_id in range(nfe):
             is_final_step = step_id == nfe - 1
@@ -792,6 +799,8 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
             policy = self.policy_class(
                 denoising_output, x_t_src, sigma_t_src, x_ref=x_ref,
                 path_epsilon=path_eps, eps=cfg_eps)
+            if return_step2_alpha and is_final_step and hasattr(policy, 'alpha'):
+                step2_alpha = policy.alpha
             if not is_final_step:
                 temperature = self.train_cfg.get('temperature', 1.0)
                 policy.temperature_(temperature)
@@ -808,6 +817,8 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
             sigma_t_src = sigma_t_dst
             t_src = t_dst
 
+        if return_step2_alpha:
+            return x_t_src, step2_alpha
         return x_t_src
 
     def forward_train(
@@ -864,7 +875,10 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
                 gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
             log_vars['gan_loss_scale'] = gan_scale
             step2_latent = None
+            step2_alpha = None
             if gan_scale > 0:
-                step2_latent = self._rollout_nfe_latent(x_ref, path_epsilon, kwargs)
-            return loss, log_vars, dict(step2_latent=step2_latent)
+                rollout = self._rollout_nfe_latent(
+                    x_ref, path_epsilon, kwargs, return_step2_alpha=True)
+                step2_latent, step2_alpha = rollout
+            return loss, log_vars, dict(step2_latent=step2_latent, step2_alpha=step2_alpha)
         return loss, log_vars

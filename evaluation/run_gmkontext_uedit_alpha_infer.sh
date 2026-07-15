@@ -72,9 +72,12 @@ resolve_ckpt() {
   local cand
   shopt -s nullglob
   for cand in \
+    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_*.pth \
+    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/latest.pth" \
-    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_8500.pth \
-    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_8500.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/latest.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_*.pth \
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha/model/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k/iter_8500.pth" \
     "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/*/iter_8500.pth \
     "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/iter_8500.pth \

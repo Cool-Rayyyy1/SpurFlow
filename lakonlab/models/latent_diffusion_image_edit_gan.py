@@ -229,6 +229,98 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
 
 
 @MODELS.register_module()
+class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditStep2DinoFeatureGAN):
+    """Step-2 PIID + alpha-guided mask local crop DINO feature GAN."""
+
+    def train_minibatch(self, data, loss_scaler=None, running_status=None):
+        bs, diffusion_args, diffusion_kwargs = self._prepare_train_minibatch_args(
+            data, running_status)
+
+        outputs = self.diffusion(
+            *diffusion_args, return_loss=True, **diffusion_kwargs)
+        if isinstance(outputs, tuple) and len(outputs) == 3:
+            loss_diffusion, log_vars, extra = outputs
+        else:
+            loss_diffusion, log_vars = outputs
+            extra = dict()
+
+        step2_latent = extra.get('step2_latent')
+        step2_alpha = extra.get('step2_alpha')
+        real_images = data.get('edited_images')
+        w_gan = self.train_cfg.get('split_stage_gan_loss_weight', 1.0)
+        gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
+        log_vars['gan_loss_scale'] = gan_scale
+
+        if (
+                gan_scale > 0
+                and self.discriminator is not None
+                and step2_latent is not None
+                and real_images is not None):
+            fake_images = self._decode_rollout_latents_to_images(step2_latent)
+            device = fake_images.device
+            disc = _discriminator_module(self)
+            step_indices = disc.make_step_indices(bs, device)
+            _, _, height, width = fake_images.shape
+            crop_specs = disc.sample_crop_specs(
+                bs, device,
+                alpha=step2_alpha,
+                image_height=height,
+                image_width=width)
+
+            loss_d = self.discriminator(
+                real_images=real_images,
+                fake_images=fake_images.detach(),
+                gan_mode='discriminator',
+                crop_specs=crop_specs,
+                step_indices=step_indices,
+                alpha=step2_alpha)
+            loss_d = gan_scale * loss_d
+            if loss_scaler is None:
+                loss_d.backward()
+            else:
+                loss_scaler.scale(loss_d).backward()
+            with torch.no_grad():
+                real_logits = self.discriminator(
+                    real_images, step_indices=step_indices, crop_specs=crop_specs)
+                fake_logits = self.discriminator(
+                    fake_images.detach(), step_indices=step_indices, crop_specs=crop_specs)
+                d_extra = getattr(disc, '_last_gan_extra', None) or {}
+                d_log_vars = disc.build_log_vars(
+                    real_logits, fake_logits, loss_d, extra=d_extra)
+            log_vars.update(d_log_vars)
+
+            _set_requires_grad(self.discriminator, False)
+            loss_g_gan = self.discriminator(
+                fake_images=fake_images,
+                gan_mode='generator',
+                crop_specs=crop_specs,
+                step_indices=step_indices,
+                alpha=step2_alpha)
+            loss_generator = loss_diffusion + (w_gan * gan_scale) * loss_g_gan
+            if loss_scaler is None:
+                loss_generator.backward()
+            else:
+                loss_scaler.scale(loss_generator).backward()
+            _set_requires_grad(self.discriminator, True)
+            with torch.no_grad():
+                fake_logits = self.discriminator(
+                    fake_images, step_indices=step_indices, crop_specs=crop_specs)
+                g_extra = getattr(disc, '_last_gan_extra', None) or {}
+                g_log_vars = disc.build_generator_log_vars(
+                    fake_logits, loss_g_gan, extra=g_extra)
+            log_vars.update(g_log_vars)
+            log_vars['loss'] = float((
+                loss_diffusion.detach() + (w_gan * gan_scale) * loss_g_gan.detach()))
+        elif isinstance(loss_diffusion, torch.Tensor) and loss_diffusion.requires_grad:
+            if loss_scaler is None:
+                loss_diffusion.backward()
+            else:
+                loss_scaler.scale(loss_diffusion).backward()
+
+        return log_vars, bs
+
+
+@MODELS.register_module()
 class LatentDiffusionImageEditSplitStageDinoFeatureGAN(LatentDiffusionImageEditSplitStageGAN):
     """Split-stage rollout PIID + TDM-style DINO feature GAN on step-2 endpoint."""
 

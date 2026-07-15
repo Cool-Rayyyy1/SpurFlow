@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 import mmcv
-from typing import Union, Callable, Optional, List
+from typing import Union, Callable, Optional, List, Sequence
 from collections import OrderedDict
 from tempfile import TemporaryDirectory
 from torch.optim import Optimizer
@@ -417,6 +417,39 @@ def load_from_local(filename, map_location=None):
     return ckpt
 
 
+def promote_non_ema_to_ema_state_dict(
+        state_dict: Union[dict, OrderedDict],
+        ema_module_keys: Sequence[str] = ('diffusion_ema',)) -> OrderedDict:
+    """Duplicate ``<ori>.*`` weights into ``<ema>.*`` when the source lacks EMA keys.
+
+    Trainable-only alpha / fixed-eps checkpoints often store student weights under
+    ``diffusion.*`` only. Training configs with ``diffusion_use_ema=True`` still
+    instantiate a separate ``diffusion_ema`` module that must be populated at load.
+    """
+    state_dict = OrderedDict(state_dict)
+    promoted_any = False
+    for ema_key in ema_module_keys:
+        if ema_key.endswith('_ema'):
+            ori_key = ema_key[:-4]
+        elif ema_key.endswith('_ema2'):
+            ori_key = ema_key[:-5]
+        else:
+            continue
+        ema_prefix = f'{ema_key}.'
+        ori_prefix = f'{ori_key}.'
+        if any(k.startswith(ema_prefix) for k in state_dict):
+            continue
+        promoted = OrderedDict()
+        for key, value in state_dict.items():
+            if key.startswith(ori_prefix):
+                promoted[ema_prefix + key[len(ori_prefix):]] = value
+        if promoted:
+            state_dict.update(promoted)
+            promoted_any = True
+    state_dict._promoted_non_ema_to_ema = promoted_any  # type: ignore[attr-defined]
+    return state_dict
+
+
 def load_checkpoint(model: torch.nn.Module,
                     filename: str,
                     map_location: Union[str, Callable, None] = None,
@@ -443,6 +476,12 @@ def load_checkpoint(model: torch.nn.Module,
              for k, v in state_dict.items()})
     # Keep metadata in state_dict
     state_dict._metadata = metadata
+
+    state_dict = promote_non_ema_to_ema_state_dict(state_dict)
+    if getattr(state_dict, '_promoted_non_ema_to_ema', False) and logger is not None:
+        logger.info(
+            'Checkpoint lacks diffusion_ema.* keys; promoted matching diffusion.* '
+            'weights for EMA modules.')
 
     state_dict = remap_single_lora_to_dual_stage_state_dict(state_dict)
     state_dict = remap_single_heads_to_dual_stage_state_dict(state_dict)

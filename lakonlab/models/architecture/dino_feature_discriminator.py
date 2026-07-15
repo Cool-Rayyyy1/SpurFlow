@@ -3,14 +3,16 @@
 # TDM-style DINO feature discriminator for EditFlow step-2 GAN:
 #   frozen DINOv3 intermediate features + trainable conv head(s)
 #   shared global/local random crops for real & fake RGB images in [0, 1]
+#   optional alpha-guided mask local crop (low alpha = edit region)
 #   logistic (softplus) D/G losses
 
 from __future__ import annotations
 
 import contextlib
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +20,11 @@ from mmgen.models.builder import MODULES
 from torch.utils.checkpoint import checkpoint
 
 from .dinov3_discriminator import load_dinov3_vitl16_from_hf
+
+try:
+    from scipy import ndimage as scipy_ndimage
+except ImportError:  # pragma: no cover - optional dependency
+    scipy_ndimage = None
 
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -75,6 +82,314 @@ def sample_dino_crop_specs(
             )
         )
     return crop_specs
+
+
+def _normalize_alpha_map(alpha: torch.Tensor) -> torch.Tensor:
+    """Return per-sample alpha map (B, H, W) in latent or image space."""
+    x = alpha.detach().float()
+    while x.dim() > 3:
+        x = x.squeeze(1)
+    if x.dim() == 4:
+        x = x.mean(dim=1)
+    if x.dim() != 3:
+        raise ValueError(f'Expected alpha (B, H, W) after normalization, got {tuple(alpha.shape)}')
+    return x
+
+
+def upsample_alpha_to_image(
+        alpha: torch.Tensor,
+        image_height: int,
+        image_width: int,
+        *,
+        smooth: bool = True,
+        smooth_sigma: float = 2.0) -> torch.Tensor:
+    """Upsample alpha to image resolution; optional separable Gaussian smooth."""
+    alpha_map = _normalize_alpha_map(alpha)
+    upsampled = F.interpolate(
+        alpha_map.unsqueeze(1),
+        size=(int(image_height), int(image_width)),
+        mode='bicubic',
+        align_corners=False,
+        antialias=True,
+    ).squeeze(1)
+    if smooth and smooth_sigma > 0:
+        kernel_size = max(3, int(round(smooth_sigma * 4)) | 1)
+        coords = torch.arange(kernel_size, device=upsampled.device, dtype=torch.float32)
+        coords = coords - (kernel_size - 1) * 0.5
+        gauss_1d = torch.exp(-0.5 * (coords / smooth_sigma) ** 2)
+        gauss_1d = gauss_1d / gauss_1d.sum()
+        gauss_h = gauss_1d.view(1, 1, 1, -1)
+        gauss_w = gauss_1d.view(1, 1, -1, 1)
+        upsampled = F.conv2d(
+            upsampled.unsqueeze(1),
+            gauss_h.expand(1, 1, 1, -1),
+            padding=(0, kernel_size // 2),
+        )
+        upsampled = F.conv2d(
+            upsampled,
+            gauss_w.expand(1, 1, -1, 1),
+            padding=(kernel_size // 2, 0),
+        ).squeeze(1)
+    return upsampled
+
+
+def _label_connected_components(binary_mask: np.ndarray) -> Tuple[np.ndarray, int]:
+    if scipy_ndimage is not None:
+        return scipy_ndimage.label(binary_mask)
+    labeled = np.zeros_like(binary_mask, dtype=np.int32)
+    current_label = 0
+    height, width = binary_mask.shape
+    for y in range(height):
+        for x in range(width):
+            if not binary_mask[y, x] or labeled[y, x]:
+                continue
+            current_label += 1
+            stack = [(y, x)]
+            labeled[y, x] = current_label
+            while stack:
+                cy, cx = stack.pop()
+                for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                    if 0 <= ny < height and 0 <= nx < width and binary_mask[ny, nx] and labeled[ny, nx] == 0:
+                        labeled[ny, nx] = current_label
+                        stack.append((ny, nx))
+    return labeled, current_label
+
+
+def _bbox_from_mask(mask: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+    ys, xs = np.where(mask)
+    if ys.size == 0:
+        return None
+    return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+
+
+def _expand_square_bbox(
+        y0: int,
+        y1: int,
+        x0: int,
+        x1: int,
+        height: int,
+        width: int,
+        *,
+        expand_factor: float = 1.4,
+        min_area_ratio: float = 0.05,
+        max_area_ratio: float = 0.55) -> Optional[Tuple[float, float, float, float]]:
+    box_h = max(y1 - y0, 1)
+    box_w = max(x1 - x0, 1)
+    cy = (y0 + y1) * 0.5
+    cx = (x0 + x1) * 0.5
+    side = max(box_h, box_w) * float(expand_factor)
+    image_area = float(height * width)
+    min_side = math.sqrt(max(min_area_ratio, 1e-6) * image_area)
+    max_side = math.sqrt(max(max_area_ratio, min_area_ratio) * image_area)
+    side = min(max(side, min_side), max_side, float(height), float(width))
+    half = side * 0.5
+    top = int(round(cy - half))
+    left = int(round(cx - half))
+    top = min(max(top, 0), max(height - int(round(side)), 0))
+    left = min(max(left, 0), max(width - int(round(side)), 0))
+    crop_h = min(int(round(side)), height - top)
+    crop_w = min(int(round(side)), width - left)
+    if crop_h <= 1 or crop_w <= 1:
+        return None
+    return (
+        top / float(height),
+        left / float(width),
+        crop_h / float(height),
+        crop_w / float(width),
+    )
+
+
+def compute_mask_guided_crop_spec(
+        alpha_map: torch.Tensor,
+        *,
+        edit_is_low_alpha: bool = True,
+        smooth_sigma: float = 2.0,
+        mass_threshold_percentile: float = 30.0,
+        mass_coverage_min: float = 0.85,
+        mass_coverage_max: float = 0.90,
+        union_area_max_ratio: float = 0.55,
+        bbox_expand_factor: float = 1.4,
+        min_crop_area_ratio: float = 0.05,
+        max_crop_area_ratio: float = 0.55,
+        min_edit_mass_ratio: float = 0.002,
+        min_component_pixels: int = 16) -> Optional[Tuple[float, float, float, float]]:
+    """Build one normalized crop spec from a single-sample alpha map (H, W)."""
+    alpha_np = alpha_map.detach().float().cpu().numpy()
+    height, width = alpha_np.shape
+    if height <= 1 or width <= 1:
+        return None
+
+    if smooth_sigma > 0:
+        if scipy_ndimage is not None:
+            alpha_np = scipy_ndimage.gaussian_filter(alpha_np, sigma=smooth_sigma)
+        else:
+            alpha_t = torch.from_numpy(alpha_np).unsqueeze(0).unsqueeze(0)
+            kernel_size = max(3, int(round(smooth_sigma * 4)) | 1)
+            alpha_t = F.avg_pool2d(
+                F.pad(alpha_t, [kernel_size // 2] * 4, mode='reflect'),
+                kernel_size=kernel_size,
+                stride=1,
+            )
+            alpha_np = alpha_t.squeeze().numpy()
+
+    if edit_is_low_alpha:
+        ref = float(np.percentile(alpha_np, mass_threshold_percentile))
+        edit_mass = np.clip(ref - alpha_np, 0.0, None)
+    else:
+        ref = float(np.percentile(alpha_np, 100.0 - mass_threshold_percentile))
+        edit_mass = np.clip(alpha_np - ref, 0.0, None)
+
+    total_mass = float(edit_mass.sum())
+    if total_mass <= min_edit_mass_ratio * height * width:
+        return None
+
+    active_thr = max(float(edit_mass.max()) * 0.05, 1e-8)
+    binary = edit_mass >= active_thr
+    labeled, num_labels = _label_connected_components(binary)
+    if num_labels <= 0:
+        return None
+
+    components = []
+    for label_id in range(1, num_labels + 1):
+        comp_mask = labeled == label_id
+        pixel_count = int(comp_mask.sum())
+        if pixel_count < min_component_pixels:
+            continue
+        mass = float(edit_mass[comp_mask].sum())
+        bbox = _bbox_from_mask(comp_mask)
+        if bbox is None:
+            continue
+        y0, y1, x0, x1 = bbox
+        area_ratio = ((y1 - y0) * (x1 - x0)) / float(height * width)
+        components.append(dict(
+            label_id=label_id,
+            mass=mass,
+            pixel_count=pixel_count,
+            bbox=bbox,
+            area_ratio=area_ratio,
+        ))
+    if not components:
+        return None
+
+    components.sort(key=lambda item: item['mass'], reverse=True)
+    coverage_target = 0.5 * (mass_coverage_min + mass_coverage_max)
+    selected = []
+    covered_mass = 0.0
+    for comp in components:
+        selected.append(comp)
+        covered_mass += comp['mass']
+        if covered_mass / total_mass >= coverage_target:
+            break
+
+    union_mask = np.zeros((height, width), dtype=bool)
+    for comp in selected:
+        union_mask |= labeled == comp['label_id']
+    union_bbox = _bbox_from_mask(union_mask)
+    if union_bbox is None:
+        return None
+    uy0, uy1, ux0, ux1 = union_bbox
+    union_area_ratio = ((uy1 - uy0) * (ux1 - ux0)) / float(height * width)
+    if union_area_ratio > union_area_max_ratio:
+        union_bbox = components[0]['bbox']
+        uy0, uy1, ux0, ux1 = union_bbox
+
+    return _expand_square_bbox(
+        uy0, uy1, ux0, ux1, height, width,
+        expand_factor=bbox_expand_factor,
+        min_area_ratio=min_crop_area_ratio,
+        max_area_ratio=max_crop_area_ratio,
+    )
+
+
+def sample_dino_alpha_mask_crop_specs(
+        batch_size: int,
+        device: torch.device,
+        *,
+        alpha: Optional[torch.Tensor] = None,
+        image_height: int,
+        image_width: int,
+        p_disable_local: float = 0.0,
+        num_global_crops: int = 1,
+        global_crop_scale: Sequence[float] = (0.5, 1.0),
+        local_crop_scale: Sequence[float] = (0.125, 0.5),
+        crop_aspect_ratio: Sequence[float] = (0.75, 1.3333333333),
+        edit_is_low_alpha: bool = True,
+        alpha_smooth_sigma: float = 2.0,
+        mass_threshold_percentile: float = 30.0,
+        mass_coverage_min: float = 0.85,
+        mass_coverage_max: float = 0.90,
+        union_area_max_ratio: float = 0.55,
+        bbox_expand_factor: float = 1.4,
+        min_crop_area_ratio: float = 0.05,
+        max_crop_area_ratio: float = 0.55,
+        min_edit_mass_ratio: float = 0.002,
+        min_component_pixels: int = 16,
+        rng: Optional[torch.Generator] = None) -> Tuple[List[torch.Tensor], Dict[str, torch.Tensor]]:
+    """Shared crop specs: [full global] or [full global, random local, mask local]."""
+    batch_size = int(batch_size)
+    crop_specs: List[torch.Tensor] = [
+        torch.tensor(
+            [[0.0, 0.0, 1.0, 1.0]] * batch_size,
+            device=device,
+            dtype=torch.float32,
+        )
+    ]
+    local_enabled = torch.rand(batch_size, device=device, generator=rng) >= float(p_disable_local)
+    mask_fallback = torch.zeros(batch_size, device=device, dtype=torch.bool)
+
+    if not bool(local_enabled.any()):
+        meta = dict(
+            local_enabled=local_enabled,
+            mask_fallback=mask_fallback,
+            num_active_crops=torch.zeros(batch_size, device=device, dtype=torch.int64),
+        )
+        return crop_specs, meta
+
+    random_local = torch.tensor(
+        [
+            sample_random_crop_spec(local_crop_scale, crop_aspect_ratio, device)
+            for _ in range(batch_size)
+        ],
+        device=device,
+        dtype=torch.float32,
+    )
+    mask_local = random_local.clone()
+    if alpha is not None:
+        alpha_img = upsample_alpha_to_image(
+            alpha, image_height, image_width, smooth=False, smooth_sigma=alpha_smooth_sigma)
+        for batch_idx in range(batch_size):
+            if not bool(local_enabled[batch_idx]):
+                continue
+            spec = compute_mask_guided_crop_spec(
+                alpha_img[batch_idx],
+                edit_is_low_alpha=edit_is_low_alpha,
+                smooth_sigma=alpha_smooth_sigma,
+                mass_threshold_percentile=mass_threshold_percentile,
+                mass_coverage_min=mass_coverage_min,
+                mass_coverage_max=mass_coverage_max,
+                union_area_max_ratio=union_area_max_ratio,
+                bbox_expand_factor=bbox_expand_factor,
+                min_crop_area_ratio=min_crop_area_ratio,
+                max_crop_area_ratio=max_crop_area_ratio,
+                min_edit_mass_ratio=min_edit_mass_ratio,
+                min_component_pixels=min_component_pixels,
+            )
+            if spec is None:
+                mask_fallback[batch_idx] = True
+            else:
+                mask_local[batch_idx] = torch.tensor(spec, device=device, dtype=torch.float32)
+    else:
+        mask_fallback.fill_(True)
+
+    crop_specs.extend([random_local, mask_local])
+    num_active = torch.ones(batch_size, device=device, dtype=torch.int64)
+    num_active = torch.where(local_enabled, torch.full_like(num_active, 3), num_active)
+    meta = dict(
+        local_enabled=local_enabled,
+        mask_fallback=mask_fallback,
+        num_active_crops=num_active,
+    )
+    return crop_specs, meta
 
 
 def apply_dino_crop_specs(
@@ -447,6 +762,261 @@ class DinoFeatureDiscriminator(nn.Module):
 
         if images is None:
             raise ValueError('DinoFeatureDiscriminator requires `images` when gan_mode is None.')
+        if step_indices is None:
+            step_indices = self.make_step_indices(images.shape[0], images.device)
+        return self.logits_from_pixels(
+            images, step_indices, crop_specs=crop_specs, requires_input_grad=False)
+
+
+@MODULES.register_module()
+class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
+    """DINO feature GAN with optional alpha-guided mask local crop."""
+
+    CROP_GLOBAL = 0
+    CROP_RANDOM_LOCAL = 1
+    CROP_MASK_LOCAL = 2
+
+    def __init__(
+            self,
+            *args,
+            use_mask_local_crop: bool = True,
+            p_disable_local: float = 0.0,
+            edit_is_low_alpha: bool = True,
+            alpha_smooth_sigma: float = 2.0,
+            mass_threshold_percentile: float = 30.0,
+            mass_coverage_min: float = 0.85,
+            mass_coverage_max: float = 0.90,
+            union_area_max_ratio: float = 0.55,
+            bbox_expand_factor: float = 1.4,
+            min_crop_area_ratio: float = 0.05,
+            max_crop_area_ratio: float = 0.55,
+            min_edit_mass_ratio: float = 0.002,
+            min_component_pixels: int = 16,
+            gan_global_weight: float = 1.0,
+            gan_random_local_weight: float = 1.0,
+            gan_mask_local_weight: float = 1.0,
+            **kwargs):
+        if use_mask_local_crop:
+            kwargs.setdefault('num_global_crops', 1)
+            kwargs.setdefault('num_local_crops', 2)
+        super().__init__(*args, **kwargs)
+        self.use_mask_local_crop = bool(use_mask_local_crop)
+        self.p_disable_local = float(p_disable_local)
+        self.edit_is_low_alpha = bool(edit_is_low_alpha)
+        self.alpha_smooth_sigma = float(alpha_smooth_sigma)
+        self.mass_threshold_percentile = float(mass_threshold_percentile)
+        self.mass_coverage_min = float(mass_coverage_min)
+        self.mass_coverage_max = float(mass_coverage_max)
+        self.union_area_max_ratio = float(union_area_max_ratio)
+        self.bbox_expand_factor = float(bbox_expand_factor)
+        self.min_crop_area_ratio = float(min_crop_area_ratio)
+        self.max_crop_area_ratio = float(max_crop_area_ratio)
+        self.min_edit_mass_ratio = float(min_edit_mass_ratio)
+        self.min_component_pixels = int(min_component_pixels)
+        self.gan_global_weight = float(gan_global_weight)
+        self.gan_random_local_weight = float(gan_random_local_weight)
+        self.gan_mask_local_weight = float(gan_mask_local_weight)
+        self._last_crop_meta: Optional[Dict[str, torch.Tensor]] = None
+
+    def sample_crop_specs(
+            self,
+            batch_size: int,
+            device: Optional[torch.device] = None,
+            *,
+            alpha: Optional[torch.Tensor] = None,
+            image_height: Optional[int] = None,
+            image_width: Optional[int] = None) -> List[torch.Tensor]:
+        device = device or self.device
+        if not self.use_mask_local_crop:
+            self._last_crop_meta = None
+            return super().sample_crop_specs(batch_size, device)
+        if image_height is None or image_width is None:
+            raise ValueError(
+                'DinoAlphaMaskFeatureDiscriminator requires image_height/image_width '
+                'when use_mask_local_crop=True.')
+        crop_specs, meta = sample_dino_alpha_mask_crop_specs(
+            batch_size,
+            device,
+            alpha=alpha,
+            image_height=int(image_height),
+            image_width=int(image_width),
+            p_disable_local=self.p_disable_local,
+            num_global_crops=self.num_global_crops,
+            global_crop_scale=self.global_crop_scale,
+            local_crop_scale=self.local_crop_scale,
+            crop_aspect_ratio=self.crop_aspect_ratio,
+            edit_is_low_alpha=self.edit_is_low_alpha,
+            alpha_smooth_sigma=self.alpha_smooth_sigma,
+            mass_threshold_percentile=self.mass_threshold_percentile,
+            mass_coverage_min=self.mass_coverage_min,
+            mass_coverage_max=self.mass_coverage_max,
+            union_area_max_ratio=self.union_area_max_ratio,
+            bbox_expand_factor=self.bbox_expand_factor,
+            min_crop_area_ratio=self.min_crop_area_ratio,
+            max_crop_area_ratio=self.max_crop_area_ratio,
+            min_edit_mass_ratio=self.min_edit_mass_ratio,
+            min_component_pixels=self.min_component_pixels,
+        )
+        self._last_crop_meta = meta
+        return crop_specs
+
+    def _split_logits_by_crop(
+            self,
+            logits: torch.Tensor,
+            batch_size: int,
+            num_crops: int) -> torch.Tensor:
+        num_layers = logits.shape[1]
+        return logits.view(num_crops, batch_size, num_layers)
+
+    def _crop_active_mask(
+            self,
+            crop_idx: int,
+            batch_size: int,
+            device: torch.device) -> torch.Tensor:
+        if crop_idx == self.CROP_GLOBAL or self._last_crop_meta is None:
+            return torch.ones(batch_size, device=device, dtype=torch.bool)
+        local_enabled = self._last_crop_meta.get('local_enabled')
+        if local_enabled is None:
+            return torch.ones(batch_size, device=device, dtype=torch.bool)
+        return local_enabled.to(device=device, dtype=torch.bool)
+
+    def _weighted_gan_loss(
+            self,
+            logits_real: torch.Tensor,
+            logits_fake: torch.Tensor,
+            *,
+            gan_mode: str) -> Tuple[torch.Tensor, Dict[str, float]]:
+        num_crops = max(len(self._crop_weights()), 1)
+        batch_size = logits_fake.shape[0] // num_crops
+        if batch_size * num_crops != logits_fake.shape[0]:
+            num_crops = 1
+            batch_size = logits_fake.shape[0]
+        logits_fake = self._split_logits_by_crop(logits_fake, batch_size, num_crops)
+        if gan_mode == 'discriminator':
+            logits_real = self._split_logits_by_crop(logits_real, batch_size, num_crops)
+        else:
+            logits_real = None
+
+        total_loss = logits_fake.new_zeros(())
+        total_weight = 0.0
+        log_vars: Dict[str, float] = {}
+        crop_names = ('global', 'random_local', 'mask_local')[:num_crops]
+        for crop_idx, (weight, name) in enumerate(zip(self._crop_weights()[:num_crops], crop_names)):
+            if weight <= 0:
+                continue
+            active = self._crop_active_mask(crop_idx, batch_size, logits_fake.device)
+            if not bool(active.any()):
+                continue
+            lf = logits_fake[crop_idx, active]
+            if gan_mode == 'discriminator':
+                lr = logits_real[crop_idx, active]
+                crop_loss = self._discriminator_loss(lr, lf)
+            else:
+                crop_loss = self._generator_loss(lf)
+            total_loss = total_loss + (weight * crop_loss)
+            total_weight += weight * float(active.float().mean())
+            with torch.no_grad():
+                if gan_mode == 'discriminator':
+                    log_vars[f'dino_gan_{name}_logits_real'] = float(lr.mean())
+                log_vars[f'dino_gan_{name}_logits_fake'] = float(lf.mean())
+                log_vars[f'loss_{"d" if gan_mode == "discriminator" else "g"}_{name}'] = float(
+                    crop_loss.detach())
+
+        if total_weight <= 0:
+            if gan_mode == 'discriminator':
+                return self._discriminator_loss(logits_real[0], logits_fake[0]), log_vars
+            return self._generator_loss(logits_fake[0]), log_vars
+        return total_loss / total_weight, log_vars
+
+    def _crop_weights(self) -> Tuple[float, ...]:
+        if not self.use_mask_local_crop:
+            return (self.gan_global_weight, self.gan_random_local_weight)
+        return (
+            self.gan_global_weight,
+            self.gan_random_local_weight,
+            self.gan_mask_local_weight,
+        )
+
+    @staticmethod
+    def build_log_vars(
+            real_logits: torch.Tensor,
+            fake_logits: torch.Tensor,
+            loss_d: torch.Tensor,
+            extra: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+        log_vars = DinoFeatureDiscriminator.build_log_vars(real_logits, fake_logits, loss_d)
+        if extra:
+            log_vars.update(extra)
+        if extra is not None and 'mask_fallback' in extra:
+            log_vars['dino_gan_mask_fallback_rate'] = float(extra['mask_fallback'])
+        return log_vars
+
+    @staticmethod
+    def build_generator_log_vars(
+            fake_logits: torch.Tensor,
+            loss_g: torch.Tensor,
+            extra: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+        log_vars = DinoFeatureDiscriminator.build_generator_log_vars(fake_logits, loss_g)
+        if extra:
+            log_vars.update(extra)
+        return log_vars
+
+    def forward(
+            self,
+            images: Optional[torch.Tensor] = None,
+            real_images: Optional[torch.Tensor] = None,
+            fake_images: Optional[torch.Tensor] = None,
+            gan_mode: Optional[str] = None,
+            step_indices: Optional[torch.Tensor] = None,
+            crop_specs: Optional[Sequence[torch.Tensor]] = None,
+            alpha: Optional[torch.Tensor] = None):
+        if gan_mode == 'discriminator':
+            assert real_images is not None and fake_images is not None
+            if step_indices is None:
+                step_indices = self.make_step_indices(fake_images.shape[0], fake_images.device)
+            if crop_specs is None:
+                _, _, height, width = fake_images.shape
+                crop_specs = self.sample_crop_specs(
+                    fake_images.shape[0],
+                    fake_images.device,
+                    alpha=alpha,
+                    image_height=height,
+                    image_width=width)
+            logits_real = self.logits_from_pixels(
+                real_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
+            logits_fake = self.logits_from_pixels(
+                fake_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
+            loss_d, extra = self._weighted_gan_loss(
+                logits_real, logits_fake, gan_mode='discriminator')
+            if self._last_crop_meta is not None:
+                extra['mask_fallback'] = float(
+                    self._last_crop_meta['mask_fallback'].float().mean())
+                extra['local_enabled_rate'] = float(
+                    self._last_crop_meta['local_enabled'].float().mean())
+            self._last_gan_extra = extra
+            return loss_d
+
+        if gan_mode == 'generator':
+            assert fake_images is not None
+            if step_indices is None:
+                step_indices = self.make_step_indices(fake_images.shape[0], fake_images.device)
+            if crop_specs is None:
+                _, _, height, width = fake_images.shape
+                crop_specs = self.sample_crop_specs(
+                    fake_images.shape[0],
+                    fake_images.device,
+                    alpha=alpha,
+                    image_height=height,
+                    image_width=width)
+            logits_fake = self.logits_from_pixels(
+                fake_images, step_indices, crop_specs=crop_specs, requires_input_grad=True)
+            loss_g, extra = self._weighted_gan_loss(
+                logits_fake, logits_fake, gan_mode='generator')
+            self._last_gan_extra = extra
+            return loss_g
+
+        if images is None:
+            raise ValueError(
+                'DinoAlphaMaskFeatureDiscriminator requires `images` when gan_mode is None.')
         if step_indices is None:
             step_indices = self.make_step_indices(images.shape[0], images.device)
         return self.logits_from_pixels(

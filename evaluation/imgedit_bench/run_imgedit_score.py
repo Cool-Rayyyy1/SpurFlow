@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run ImgEdit-Bench GPT-4o scoring (Basic + UGE) for teacher or student outputs."""
+"""Run ImgEdit-Bench GPT scoring (Basic + UGE) for supported model outputs."""
 
 from __future__ import annotations
 
@@ -35,7 +35,8 @@ def load_openai_env() -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ImgEdit-Bench GPT scoring.")
-    p.add_argument("--role", choices=("teacher", "student", "klein"), default="student")
+    p.add_argument(
+        "--role", choices=("teacher", "student", "klein", "qwen"), default="student")
     p.add_argument("--model_output", type=Path, required=True,
                    help="Folder with basic/ and uge/ generated images.")
     p.add_argument("--scores_dir", type=Path, default=None,

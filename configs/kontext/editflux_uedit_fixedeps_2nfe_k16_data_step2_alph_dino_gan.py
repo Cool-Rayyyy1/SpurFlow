@@ -1,32 +1,17 @@
 _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 
-# DMD2 (Tianwei Yin et al.) on pico-banana-400k image editing, 2-NFE.
-# `train_flux_edit_dmd2_fixedeps_data.sh` -> gmkontext_dmd2_uedit_fixedeps_k16_2nfe_pico400k
-#
-# Generator: ArcFlowEdit residual student (official backward simulation:
-#            random step index, no-grad bootstrap, single-step gradient)
-# Real score: frozen Kontext teacher (distilled guidance embed)
-# Fake score: LoRA-tuned Flux flow model (tied backbone with teacher)
-# GAN (DMD2-native): fake score run in classify_mode + FluxDMD2ClsHead on
-#            latents (official cls-on-clean-image + diffusion-GAN), softplus losses
-name = 'gmkontext_dmd2_uedit_fixedeps_k16_2nfe_pico400k'
+# `train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh`
+# Fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN with mask-guided local crop.
+# Fake: 2-NFE rollout -> step2 alpha + endpoint latent -> VAE decode.
+# Crops (shared real/fake): full global, random local, alpha-mask local (low alpha = edit).
+# GAN grads flow only through the final NFE step (gan_grad_step2_only).
+name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-
-_lora_targets = [
-    'proj_mlp',
-    'proj_out',
-    'ff.net.0.proj',
-    'ff.net.2',
-    'ff_context.net.0.proj',
-    'ff_context.net.2',
-    'timestep_embedder.linear_1',
-    'timestep_embedder.linear_2',
-]
+dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
-    type='LatentDiffusionImageEditDMD2',
-    tie_fake_score=True,
+    type='LatentDiffusionImageEditStep2AlphaDinoFeatureGAN',
     vae=dict(
         type='PretrainedVAE',
         from_pretrained=kontext_model,
@@ -34,16 +19,17 @@ model = dict(
         freeze=True,
         torch_dtype='bfloat16'),
     diffusion=dict(
-        type='ArcFlowEditDMD2Imitation',
-        policy_type='ArcFlowEdit',
+        type='ArcFlowEditImitationStep2GAN',
+        policy_type='ArcFlowEditNewAlpha',
         denoising=dict(
-            type='ArcFluxEditNewTransformer2DModel',
+            type='ArcFluxEditNewAlphaTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
                 'proj_out_deltax',
                 'proj_out_logweights',
                 'proj_out_loggamma',
+                'proj_out_alpha',
                 'norm_out',
                 'lora'],
             inherit_proj_out_deltax=False,
@@ -62,7 +48,15 @@ model = dict(
             torch_dtype='bfloat16',
             checkpointing=True,
             use_lora=True,
-            lora_target_modules=_lora_targets,
+            lora_target_modules=[
+                'proj_mlp',
+                'proj_out',
+                'ff.net.0.proj',
+                'ff.net.2',
+                'ff_context.net.0.proj',
+                'ff_context.net.2',
+                'timestep_embedder.linear_1',
+                'timestep_embedder.linear_2'],
             lora_dropout=0.05,
             lora_rank=256),
         flow_loss=dict(
@@ -96,40 +90,44 @@ model = dict(
         num_timesteps=1,
         denoising_mean_mode='U'),
     tie_teacher=True,
-    fake_score=dict(
-        type='GaussianFlow',
-        denoising=dict(
-            type='FluxTransformer2DModel',
-            patch_size=2,
-            freeze=True,
-            freeze_exclude=['lora'],
-            pretrained=kontext_transformer,
-            in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
-            attention_head_dim=128,
-            num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
-            torch_dtype='bfloat16',
-            checkpointing=True,
-            use_lora=True,
-            lora_target_modules=_lora_targets,
-            lora_rank=64),
-        num_timesteps=1,
-        timestep_sampler=dict(
-            type='ContinuousTimeStepSampler',
-            shift=3.2,
-            logit_normal_enable=False),
-        denoising_mean_mode='U'),
-    # DMD2-native GAN head: shares the fake-score backbone (classify_mode);
-    # only this small cls head is a separate trainable module.
-    # 3072 = num_attention_heads (24) * attention_head_dim (128).
     discriminator=dict(
-        type='FluxDMD2ClsHead',
-        feature_dim=3072,
-        hidden_dim=1024),
+        type='DinoAlphaMaskFeatureDiscriminator',
+        checkpoint_path=dinov3_model,
+        num_steps=2,
+        feature_layers=(23,),
+        global_input_size=224,
+        local_input_size=224,
+        num_global_crops=1,
+        num_local_crops=2,
+        global_crop_scale=(0.5, 1.0),
+        local_crop_scale=(0.125, 0.5),
+        crop_aspect_ratio=(0.75, 1.3333333333),
+        clamp_pixels=True,
+        step_conditioning=False,
+        head_num_blocks=3,
+        head_use_avgpool=False,
+        head_gradient_checkpointing=True,
+        head_norm_groups=32,
+        dense_output=False,
+        backbone_dtype='bf16',
+        head_dtype='fp32',
+        freeze_backbone=True,
+        use_mask_local_crop=True,
+        p_disable_local=0.0,
+        edit_is_low_alpha=True,
+        alpha_smooth_sigma=2.0,
+        mass_threshold_percentile=30.0,
+        mass_coverage_min=0.85,
+        mass_coverage_max=0.90,
+        union_area_max_ratio=0.55,
+        bbox_expand_factor=1.4,
+        min_crop_area_ratio=0.05,
+        max_crop_area_ratio=0.55,
+        min_edit_mass_ratio=0.002,
+        min_component_pixels=16,
+        gan_global_weight=1.0,
+        gan_random_local_weight=1.0,
+        gan_mask_local_weight=1.0),
 )
 
 save_interval = 500
@@ -141,25 +139,10 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    # DMD2 knobs (aligned with the official SDXL 4-step backsim script)
-    dmd2_gen_update_ratio=5,
-    dmd2_dm_loss_weight=1.0,
-    dmd2_fake_loss_weight=1.0,
-    dmd2_reg_loss_weight=0.0,
-    dmd2_real_guidance_scale=1.0,
-    dmd2_fake_guidance_scale=1.0,
-    dmd2_fake_train_guidance_scale=1.0,
-    dmd2_fake_distilled_guidance_scale=1.0,
-    dmd2_max_step_percent=0.98,
-    dmd2_min_step_percent=0.02,
-    dmd2_backward_simulation=True,
-    # Official: gen_cls_loss_weight=5e-3, guidance_cls_loss_weight=1e-2,
-    # --diffusion_gan --diffusion_gan_max_timestep 1000 (full range).
-    dmd2_gan_loss_weight=5e-3,
-    dmd2_guidance_cls_loss_weight=1e-2,
-    dmd2_diffusion_gan=True,
-    dmd2_diffusion_gan_max_step_percent=1.0,
-    split_stage_step2_x_ref_scale=1.0,
+    split_stage_gan_warmup_iters=0,
+    split_stage_gan_ramp_iters=0,
+    split_stage_gan_loss_weight=0.05,
+    gan_grad_step2_only=True,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,
@@ -169,17 +152,10 @@ train_cfg = dict(
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
-    diffusion_grad_clip=50.0,
-    diffusion_grad_clip_begin_iter=100,
-    fake_score_grad_clip=50.0,
-    fake_score_grad_clip_begin_iter=100,
-    discriminator_grad_clip=50.0,
-    discriminator_grad_clip_begin_iter=100,
 )
 test_cfg = dict(
     distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
-    split_stage_step2_x_ref_scale=1.0,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
@@ -189,21 +165,27 @@ test_cfg = dict(
 
 optimizer = {
     'diffusion': dict(
-        type='AdamW', lr=5e-7, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=1e-4, betas=(0.9, 0.95), weight_decay=0.0,
         paramwise_cfg=dict(
             custom_keys={
                 'proj_out_loggamma': dict(lr_mult=0.1),
             }),
     ),
-    'fake_score': dict(
-        type='AdamW', lr=5e-7, betas=(0.9, 0.95), weight_decay=0.0,
-    ),
-    # Official DMD2: the cls head belongs to the guidance model and shares
-    # its optimizer (guidance_lr=5e-7).
     'discriminator': dict(
-        type='AdamW', lr=5e-7, betas=(0.9, 0.95), weight_decay=0.0,
+        type='AdamW', lr=5e-5, betas=(0.0, 0.95), weight_decay=0.01,
     ),
 }
+
+fsdp_kwargs = dict(
+    wrap_frozen_modules=True,
+    ignore_frozen_parameters=False,
+    fsdp_modules=[
+        'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
+        'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
+    ],
+    exclude_keys=['vae', 'discriminator'],
+    tie_key_mappings=['teacher->diffusion', 'teacher->diffusion_ema'],
+)
 
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
@@ -233,7 +215,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 20000
+total_iters = 25000
 log_config = dict(
     interval=1,
     hooks=[
@@ -253,22 +235,6 @@ custom_hooks = [
         priority='VERY_HIGH'),
 ]
 
-# Extend FSDP ties: share frozen Kontext weights across teacher / student / fake_score.
-fsdp_kwargs = dict(
-    wrap_frozen_modules=True,
-    ignore_frozen_parameters=False,
-    fsdp_modules=[
-        'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
-        'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
-    ],
-    exclude_keys=['vae'],
-    tie_key_mappings=[
-        'teacher->diffusion',
-        'teacher->diffusion_ema',
-        'teacher->fake_score',
-    ],
-)
-
 load_from = None
-resume_from = f'checkpoints/{name}/latest.pth'
+resume_from = None
 workflow = [('train', save_interval)]

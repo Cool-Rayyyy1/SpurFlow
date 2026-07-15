@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ImgEdit-Bench inference for EditFlow (student) and FLUX Kontext teacher."""
+"""ImgEdit-Bench inference for EditFlow and supported baseline pipelines."""
 
 from __future__ import annotations
 
@@ -42,12 +42,16 @@ TEACHER_DEFAULT_GUIDANCE = 2.5
 STUDENT_DEFAULT_GUIDANCE = TEACHER_DEFAULT_GUIDANCE
 KLEIN_DEFAULT_STEPS = 4
 KLEIN_DEFAULT_GUIDANCE = 1.0
+QWEN_DEFAULT_STEPS = 40
+QWEN_DEFAULT_GUIDANCE = 1.0
+QWEN_TRUE_CFG_SCALE = float(os.environ.get("QWEN_TRUE_CFG_SCALE", "4.0"))
+QWEN_NEGATIVE_PROMPT = os.environ.get("QWEN_NEGATIVE_PROMPT", " ")
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ImgEdit-Bench inference for EditFlow/Kontext.")
+    p = argparse.ArgumentParser(description="ImgEdit-Bench inference for EditFlow and baselines.")
     p.add_argument("--suite", choices=("basic", "uge", "multiturn", "all"), default="all")
-    p.add_argument("--role", choices=("student", "teacher", "klein"), default="student")
+    p.add_argument("--role", choices=("student", "teacher", "klein", "qwen"), default="student")
     p.add_argument("--bench_root", type=Path, default=DEFAULT_BENCH_ROOT)
     p.add_argument("--annotations_dir", type=Path, default=EVAL_ROOT / "annotations")
     p.add_argument("--output_dir", type=Path, default=None)
@@ -168,6 +172,9 @@ def resolve_output_dir(args: argparse.Namespace) -> Path:
     if args.role == "klein":
         run_name = args.run_name or "flux2_klein_9b"
         return DEFAULT_OUTPUT_ROOT / "runs" / f"{run_name}_{KLEIN_DEFAULT_STEPS}step" / "model"
+    if args.role == "qwen":
+        run_name = args.run_name or "qwen_image_edit_2511"
+        return DEFAULT_OUTPUT_ROOT / "runs" / f"{run_name}_{QWEN_DEFAULT_STEPS}step" / "model"
     run_name = args.run_name or "editflow"
     return DEFAULT_OUTPUT_ROOT / "student" / run_name
 
@@ -184,6 +191,12 @@ def resolve_inference_settings(args: argparse.Namespace) -> Tuple[int, float]:
             os.environ.get("KLEIN_STEPS", KLEIN_DEFAULT_STEPS))
         guidance = args.guidance_scale if args.guidance_scale is not None else float(
             os.environ.get("KLEIN_GUIDANCE", KLEIN_DEFAULT_GUIDANCE))
+        return steps, guidance
+    if args.role == "qwen":
+        steps = args.num_inference_steps or int(
+            os.environ.get("QWEN_STEPS", QWEN_DEFAULT_STEPS))
+        guidance = args.guidance_scale if args.guidance_scale is not None else float(
+            os.environ.get("QWEN_GUIDANCE", QWEN_DEFAULT_GUIDANCE))
         return steps, guidance
     steps = infer_nfe(args.run_name, args.num_inference_steps)
     guidance = args.guidance_scale if args.guidance_scale is not None else float(
@@ -221,6 +234,25 @@ def build_klein_pipeline(model_path: str, device: str, cpu_offload: bool):
         pipe.enable_model_cpu_offload()
     else:
         pipe = pipe.to(device)
+    return pipe
+
+
+def build_qwen_pipeline(model_path: str, device: str, cpu_offload: bool):
+    try:
+        from diffusers import QwenImageEditPlusPipeline
+    except ImportError as exc:
+        raise ImportError(
+            "QwenImageEditPlusPipeline is unavailable. "
+            "Install the latest diffusers from GitHub."
+        ) from exc
+
+    pipe = QwenImageEditPlusPipeline.from_pretrained(
+        model_path, torch_dtype=torch.bfloat16)
+    if cpu_offload:
+        pipe.enable_model_cpu_offload()
+    else:
+        pipe = pipe.to(device)
+    pipe.set_progress_bar_config(disable=None)
     return pipe
 
 
@@ -336,6 +368,28 @@ def run_one_klein(
 
 
 @torch.inference_mode()
+def run_one_qwen(
+    pipe,
+    image: Image.Image,
+    prompt: str,
+    num_inference_steps: int,
+    guidance_scale: float,
+    seed: int,
+) -> Image.Image:
+    out = pipe(
+        image=[image],
+        prompt=prompt,
+        generator=torch.manual_seed(seed),
+        true_cfg_scale=QWEN_TRUE_CFG_SCALE,
+        negative_prompt=QWEN_NEGATIVE_PROMPT,
+        num_inference_steps=num_inference_steps,
+        guidance_scale=guidance_scale,
+        num_images_per_prompt=1,
+    )
+    return out.images[0]
+
+
+@torch.inference_mode()
 def run_one_student(
     model,
     image: Image.Image,
@@ -385,6 +439,9 @@ def run_one(
             runner, image, prompt, num_inference_steps, guidance_scale, seed)
     if role == "klein":
         return run_one_klein(
+            runner, image, prompt, num_inference_steps, guidance_scale, seed)
+    if role == "qwen":
+        return run_one_qwen(
             runner, image, prompt, num_inference_steps, guidance_scale, seed)
     return run_one_student(
         runner, image, prompt, num_inference_steps, guidance_scale, seed, device)
@@ -468,7 +525,14 @@ def process_tasks(
         if not src_path.is_file():
             raise FileNotFoundError(f"Missing source image: {src_path}")
 
-        task_seed = seed + int(sample_key.split(":")[-1]) if sample_key.split(":")[-1].isdigit() else seed
+        if role == "qwen":
+            task_seed = seed
+        else:
+            task_seed = (
+                seed + int(sample_key.split(":")[-1])
+                if sample_key.split(":")[-1].isdigit()
+                else seed
+            )
         image = Image.open(src_path).convert("RGB")
 
         if suite_name == "multiturn":
@@ -518,6 +582,9 @@ def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) 
             worker_cfg["model_path"], device, worker_cfg["cpu_offload"])
     elif worker_cfg["role"] == "klein":
         runner = build_klein_pipeline(
+            worker_cfg["model_path"], device, worker_cfg["cpu_offload"])
+    elif worker_cfg["role"] == "qwen":
+        runner = build_qwen_pipeline(
             worker_cfg["model_path"], device, worker_cfg["cpu_offload"])
     else:
         runner = build_student_model(
@@ -582,6 +649,8 @@ def run_parallel_inference(
             runner = build_teacher_pipeline(args.model_path, device, args.cpu_offload)
         elif args.role == "klein":
             runner = build_klein_pipeline(args.model_path, device, args.cpu_offload)
+        elif args.role == "qwen":
+            runner = build_qwen_pipeline(args.model_path, device, args.cpu_offload)
         else:
             runner = build_student_model(args.config, args.ckpt, device)
         return process_tasks(
@@ -620,10 +689,10 @@ def main() -> None:
             raise FileNotFoundError(f"Config not found: {args.config}")
         if not args.ckpt.is_file():
             raise FileNotFoundError(f"Checkpoint not found: {args.ckpt}")
-    elif args.role == "klein":
+    elif args.role in ("klein", "qwen"):
         model_dir = Path(args.model_path)
         if not model_dir.is_dir():
-            raise FileNotFoundError(f"Klein model not found: {model_dir}")
+            raise FileNotFoundError(f"{args.role} model not found: {model_dir}")
 
     num_steps, guidance_scale = resolve_inference_settings(args)
     output_dir = resolve_output_dir(args)
@@ -661,6 +730,8 @@ def main() -> None:
             runner = build_teacher_pipeline(args.model_path, device, args.cpu_offload)
         elif args.role == "klein":
             runner = build_klein_pipeline(args.model_path, device, args.cpu_offload)
+        elif args.role == "qwen":
+            runner = build_qwen_pipeline(args.model_path, device, args.cpu_offload)
         else:
             runner = build_student_model(args.config, args.ckpt, device)
         new_manifest = process_tasks(
@@ -687,6 +758,8 @@ def main() -> None:
         "run_name": args.run_name,
         "num_inference_steps": num_steps,
         "guidance_scale": guidance_scale,
+        "true_cfg_scale": QWEN_TRUE_CFG_SCALE if args.role == "qwen" else None,
+        "negative_prompt": QWEN_NEGATIVE_PROMPT if args.role == "qwen" else None,
         "suite": args.suite,
         "num_tasks": len(manifest),
         "num_gpus": len(gpu_ids),
