@@ -68,6 +68,41 @@ class ArcFlowEditImitation(ArcFlowImitation):
             self, sigma_t_src, x_t_start, sigma_t_start, raw_t_end,
             policy, eps=eps, seq_len=seq_len)
 
+    def _direct_delta_loss(self, x_0, policy, t_src, sigma_t_src):
+        """Anchor GM mixture pred_delta to the edit endpoint decomposition.
+
+        Non-alpha: pred_delta ~ x0_tgt - x_ref  (endpoint: x_ref + pred_delta).
+        Alpha: pred_delta ~ x0_tgt - alpha*x_ref  (endpoint: alpha*x_ref + pred_delta).
+        Uses the same DiffusionMSELoss rescaling as PIID.
+        """
+        pred_delta = policy.compute_pred_delta(sigma_t_src, sigma_t_src)
+        if hasattr(policy, 'alpha'):
+            target_delta = x_0 - policy.alpha * policy.x_ref
+        else:
+            target_delta = x_0 - policy.x_ref
+        return self.flow_loss(dict(
+            u_t_pred=pred_delta,
+            u_t=target_delta,
+            timesteps=t_src,
+        ))
+
+    def _maybe_add_direct_delta_loss(
+            self,
+            loss,
+            log_vars,
+            x_0,
+            policy,
+            t_src,
+            sigma_t_src):
+        w = self.train_cfg.get('direct_delta_loss_weight', 0.0)
+        if w <= 0:
+            return loss, log_vars
+        if hasattr(policy, 'alpha'):
+            loss_direct = self._direct_delta_loss(x_0, policy, t_src, sigma_t_src)
+            loss = loss + w * loss_direct
+            log_vars['loss_direct_delta'] = float(loss_direct.detach())
+        return loss, log_vars
+
     def forward_train(self, x_0, teacher=None, teacher_kwargs=dict(), running_status=None, **kwargs):
         x_ref = kwargs.pop('x_ref', None)
         if x_ref is None:
@@ -125,6 +160,8 @@ class ArcFlowEditImitation(ArcFlowImitation):
             teacher_kwargs)
 
         loss = loss_diffusion
+        loss, log_vars = self._maybe_add_direct_delta_loss(
+            loss, log_vars, x_0, policy, t_src, sigma_t_src)
         log_vars.update(self.flow_loss.log_vars)
         log_vars.update(loss_diffusion=float(loss_diffusion.detach()))
 
@@ -247,8 +284,9 @@ class ArcFlowEditImitationSplitStage(ArcFlowEditImitation):
     def _direct_flow_loss(self, x_0, policy, t_src, sigma_t_src):
         """Analytic data flow-matching loss for the edit residual at current t.
 
-        target_u = path_epsilon - x0_tgt,  pred_u = path_epsilon - x_ref - pred_delta
-        => aligns pred_delta to (x0_tgt - x_ref). No teacher forward required.
+        Non-alpha only: target_u = path_epsilon - x0_tgt,
+        pred_u = path_epsilon - x_ref - pred_delta.
+        For alpha policies use ``_direct_delta_loss`` instead.
         """
         target_u = policy.path_epsilon - x_0
         pred_u = policy.velocity(sigma_t_src, sigma_t_src)
@@ -865,6 +903,8 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
             teacher_kwargs)
 
         loss = loss_diffusion
+        loss, log_vars = self._maybe_add_direct_delta_loss(
+            loss, log_vars, x_0, policy, t_src, sigma_t_src)
         log_vars.update(self.flow_loss.log_vars)
         log_vars.update(loss_diffusion=float(loss_diffusion.detach()))
 

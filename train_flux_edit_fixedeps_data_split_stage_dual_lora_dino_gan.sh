@@ -3,8 +3,9 @@
 #   Loads fixed-eps pretrain (default iter_20000); single LoRA + output heads are
 #   copied to both step1 and step2 modules at load time.
 #   step1 LoRA: first rollout segment PIID
-#   step2 LoRA: second segment PIID + direct flow MSE + GAN (GAN grad -> step2 LoRA only)
-#   teacher_ratio stays 0 (num_decay_iters=0). GAN scale ramps 0->1 over 0-1000 iters.
+#   step2 LoRA: second segment PIID + direct flow MSE (w=0.5) + GAN
+#   GAN grads flow through both 2-NFE rollout steps (gan_grad_step2_only=false).
+#   teacher_ratio stays 0 (num_decay_iters=0). GAN off until iter 1500, then ramp 0->1 over 1000 iters.
 #
 #   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh
 #   GPU_IDS=0,1 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_dino_gan.sh 2
@@ -42,7 +43,7 @@ NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
-TOTAL_ITERS="${TOTAL_ITERS:-25000}"
+TOTAL_ITERS="${TOTAL_ITERS:-30000}"
 EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
 KONTEXT_MODEL="${KONTEXT_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev}"
@@ -56,9 +57,9 @@ PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/${FIXEDEPS_RUN_NAME}/20260618_055623
 SPLIT_STAGE_DIFFUSION_WEIGHT="${SPLIT_STAGE_DIFFUSION_WEIGHT:-0.5}"
 SPLIT_STAGE_TEACHER_WEIGHT="${SPLIT_STAGE_TEACHER_WEIGHT:-0.5}"
 SPLIT_STAGE_STEP2_X_REF_SCALE="${SPLIT_STAGE_STEP2_X_REF_SCALE:-1.0}"
-SPLIT_STAGE_GAN_WARMUP_ITERS="${SPLIT_STAGE_GAN_WARMUP_ITERS:-0}"
+SPLIT_STAGE_GAN_WARMUP_ITERS="${SPLIT_STAGE_GAN_WARMUP_ITERS:-1500}"
 SPLIT_STAGE_GAN_RAMP_ITERS="${SPLIT_STAGE_GAN_RAMP_ITERS:-1000}"
-SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.01}"
+SPLIT_STAGE_GAN_WEIGHT="${SPLIT_STAGE_GAN_WEIGHT:-0.02}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
 DINO_FEATURE_LAYERS="${DINO_FEATURE_LAYERS:-17,23}"  # ViT-L has blocks 0-23 only
@@ -148,7 +149,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_warmup_iters=${SPLIT_STAGE_GAN_WARMUP_ITERS}"
     "train_cfg.split_stage_gan_ramp_iters=${SPLIT_STAGE_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${SPLIT_STAGE_GAN_WEIGHT}"
-    "train_cfg.gan_grad_step2_only=True"
+    "train_cfg.gan_grad_step2_only=False"
     "train_cfg.num_decay_iters=0"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
     "model.discriminator.num_steps=${NFE}"

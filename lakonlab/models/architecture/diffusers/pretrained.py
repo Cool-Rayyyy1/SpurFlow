@@ -297,6 +297,10 @@ class PretrainedQwenImageEditTextEncoder(nn.Module):
             prompt=prompt,
             image=image,
             max_sequence_length=self.max_sequence_length)
+        if prompt_embeds_mask is None:
+            prompt_embeds_mask = torch.ones(
+                prompt_embeds.shape[0], prompt_embeds.shape[1],
+                dtype=torch.long, device=prompt_embeds.device)
         return dict(
             encoder_hidden_states=prompt_embeds,
             encoder_hidden_states_mask=prompt_embeds_mask)

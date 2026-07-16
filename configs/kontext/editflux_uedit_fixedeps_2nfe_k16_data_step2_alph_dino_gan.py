@@ -142,7 +142,9 @@ train_cfg = dict(
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
     split_stage_gan_loss_weight=0.05,
-    gan_grad_step2_only=False,
+    # Anchor pred_delta ~ x0_tgt - alpha*x_ref (same role as split-stage direct flow).
+    direct_delta_loss_weight=0.5,
+    gan_grad_step2_only=True,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,

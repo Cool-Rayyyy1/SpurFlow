@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # ImgEdit-Bench student inference for gmkontext_uedit alpha models.
 #
-# Uses run_editflow_imgedit_infer_alpha.py which writes:
-#   student/basic/*.png, student/uge/*.png   — GPT scoring inputs (unchanged layout)
-#   student/alpha_vis/basic/*_alpha_step{1,2}.png — per-patch alpha overlays (NOT scored)
+# Output layout (no comparisons):
+#   student/basic/{Action,Add,Adjust,Background,Compose,Extract,Remove,Replace,Style}/{key}/
+#     src.png
+#     pred.png
+#     prompt.txt
+#   student/basic/{key}.png          — flat copy of pred for GPT scoring
+#   student/uge/{key}.png
+#   student/alpha_vis/...            — optional alpha overlays (not scored)
 #
 # For fixed-eps alpha (NO proj_out_epsilon), use:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_alpha_infer.sh
@@ -12,6 +17,7 @@
 #   bash evaluation/run_gmkontext_uedit_alpha_infer.sh
 #   SUITE=basic MAX_SAMPLES=8 bash evaluation/run_gmkontext_uedit_alpha_infer.sh
 #   GEN_ONLY=1 bash evaluation/run_gmkontext_uedit_alpha_infer.sh
+#   SCORE_ONLY=1 NUM_PROCESSES=16 bash evaluation/run_gmkontext_uedit_alpha_infer.sh
 
 set -euo pipefail
 
@@ -36,8 +42,7 @@ export NUM_GPUS
 RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k}"
 CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data.py}"
 CKPT="${CKPT:-}"
-RUN_TAG="${RUN_TAG:-${RUN_NAME}_$(basename "${CKPT:-iter_5000.pth}" .pth)}"
-REF_TEACHER_OUTPUT="${REF_TEACHER_OUTPUT:-${EVAL_DIR}/outputs/runs/20260610_011516_iter_5000/teacher}"
+RUN_TAG="${RUN_TAG:-${RUN_NAME}_$(basename "${CKPT:-iter_18000.pth}" .pth)}"
 
 STUDENT_NFE="${STUDENT_NFE:-2}"
 STUDENT_GUIDANCE="${STUDENT_GUIDANCE:-3.5}"
@@ -48,14 +53,12 @@ SUITE="${SUITE:-all}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
 GEN_ONLY="${GEN_ONLY:-0}"
 SCORE_ONLY="${SCORE_ONLY:-0}"
-BUILD_COMPARISONS="${BUILD_COMPARISONS:-1}"
 CPU_OFFLOAD="${CPU_OFFLOAD:-0}"
 NUM_PROCESSES="${NUM_PROCESSES:-16}"
 FORCE_SCORE="${FORCE_SCORE:-0}"
 
 RUN_OUTPUT_ROOT="${RUN_OUTPUT_ROOT:-${EVAL_DIR}/outputs/runs/${RUN_TAG}}"
 STUDENT_OUTPUT="${STUDENT_OUTPUT:-${RUN_OUTPUT_ROOT}/student}"
-COMPARISON_OUTPUT="${COMPARISON_OUTPUT:-${RUN_OUTPUT_ROOT}/comparisons}"
 SCORES_SUBDIR="${SCORES_SUBDIR:-scores}"
 SCORES_TXT_NAME="${SCORES_TXT_NAME:-scores.txt}"
 STUDENT_SCORES_DIR="${STUDENT_OUTPUT}/${SCORES_SUBDIR}"
@@ -72,21 +75,14 @@ resolve_ckpt() {
   local cand
   shopt -s nullglob
   for cand in \
+    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}_20260713/iter_18000.pth" \
+    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_18000.pth \
     "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/latest.pth" \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/latest.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/*/iter_*.pth \
-    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_*.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha/model/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k/iter_8500.pth" \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/*/iter_8500.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/iter_8500.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/*/iter_5000.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k_alpha"/iter_5000.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k"/*/iter_8500.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k"/iter_8500.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k"/*/iter_5000.pth \
-    "${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k"/iter_5000.pth; do
+    "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}"/iter_*.pth; do
     if [[ -f "${cand}" ]]; then
       echo "${cand}"
       shopt -u nullglob
@@ -112,11 +108,9 @@ write_run_config() {
     echo "STUDENT_GUIDANCE:${STUDENT_GUIDANCE}"
     echo "STUDENT_RESIZE_MODE:${STUDENT_RESIZE_MODE}"
     echo "SUITE:           ${SUITE}"
-    echo "REF_TEACHER:     ${REF_TEACHER_OUTPUT}"
     echo "STUDENT_OUTPUT:  ${STUDENT_OUTPUT}"
     echo "ALPHA_VIS_DIR:   ${ALPHA_VIS_DIR}"
-    echo "COMPARISONS:     ${COMPARISON_OUTPUT}"
-    echo "BUILD_COMPARISONS:${BUILD_COMPARISONS}"
+    echo "LAYOUT:          student/basic/<Category>/<key>/{src,pred,prompt}"
     echo "GEN_ONLY:        ${GEN_ONLY}"
     echo "NUM_PROCESSES:   ${NUM_PROCESSES}"
     echo "FORCE_SCORE:     ${FORCE_SCORE}"
@@ -150,33 +144,6 @@ run_student_generation() {
   fi
   if [[ "${CPU_OFFLOAD}" == "1" ]]; then
     cmd+=(--cpu_offload)
-  fi
-  echo "Running: ${cmd[*]}"
-  "${cmd[@]}"
-}
-
-run_comparisons() {
-  if [[ "${BUILD_COMPARISONS}" != "1" ]]; then
-    return 0
-  fi
-  local -a cmd=(
-    python "${EVAL_DIR}/build_comparison_grids.py"
-    --bench_root "${IMGEDIT_BENCH_ROOT}"
-    --annotations_dir "${EVAL_DIR}/annotations"
-    --output_dir "${COMPARISON_OUTPUT}"
-    --student_output "${STUDENT_OUTPUT}"
-    --require_student
-    --suite "${SUITE}"
-    --skip_existing
-  )
-  if [[ -d "${REF_TEACHER_OUTPUT}" ]]; then
-    cmd+=(--teacher_output "${REF_TEACHER_OUTPUT}")
-  else
-    echo "[warn] REF_TEACHER_OUTPUT not found: ${REF_TEACHER_OUTPUT}"
-    echo "       comparisons will include source + student only"
-  fi
-  if [[ -n "${MAX_SAMPLES}" ]]; then
-    cmd+=(--max_samples "${MAX_SAMPLES}")
   fi
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
@@ -216,7 +183,7 @@ fi
 CKPT_PATH=""
 if [[ "${SCORE_ONLY}" != "1" ]]; then
   if ! CKPT_PATH="$(resolve_ckpt)"; then
-    echo "ERROR: checkpoint not found. Set CKPT=/path/to/iter_5000.pth" >&2
+    echo "ERROR: checkpoint not found. Set CKPT=/path/to/iter_18000.pth" >&2
     exit 1
   fi
   echo "[ckpt] ${CKPT_PATH}"
@@ -227,11 +194,10 @@ write_run_config "started"
 if [[ "${SCORE_ONLY}" != "1" ]]; then
   echo "[gen] alpha student ${RUN_NAME} (${STUDENT_NFE} NFE, guidance=${STUDENT_GUIDANCE}, resize=${STUDENT_RESIZE_MODE})"
   run_student_generation
-  run_comparisons
 fi
 
 if [[ "${GEN_ONLY}" != "1" ]]; then
-  echo "[score] student -> ${STUDENT_SCORES_TXT} (model=${OPENAI_SCORING_MODEL})"
+  echo "[score] student -> ${STUDENT_SCORES_TXT} (model=${OPENAI_SCORING_MODEL}, processes=${NUM_PROCESSES})"
   run_score
 fi
 
@@ -241,8 +207,8 @@ echo ""
 echo "Done."
 echo "  run folder:      ${RUN_OUTPUT_ROOT}"
 echo "  student outputs: ${STUDENT_OUTPUT}"
+echo "  basic cases:     ${STUDENT_OUTPUT}/basic/{Action,Add,...}/<key>/{src,pred,prompt}"
 echo "  alpha vis:       ${ALPHA_VIS_DIR}"
-echo "  comparisons:     ${COMPARISON_OUTPUT}"
 if [[ "${GEN_ONLY}" != "1" ]]; then
   echo "  student scores:  ${STUDENT_SCORES_TXT}"
 fi

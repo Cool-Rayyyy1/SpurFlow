@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """ImgEdit-Bench inference for EditFlow alpha student models.
 
-Same benchmark layout as run_editflow_imgedit_infer.py for scoring images
-(basic/, uge/, multiturn/). Additionally writes alpha patch visualizations under
-alpha_vis/ — these are NOT used by GPT scoring.
+Scoring still uses flat files:
+  student/basic/{key}.png
+  student/uge/{key}.png
+
+Human-readable basic cases are also written as:
+  student/basic/{Action,Add,...}/{key}/
+    src.png
+    pred.png
+    prompt.txt
+
+Alpha patch visualizations go under alpha_vis/ (NOT used by GPT scoring).
 """
 
 from __future__ import annotations
@@ -11,9 +19,10 @@ from __future__ import annotations
 import json
 import multiprocessing as mp
 import os
+import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from PIL import Image
@@ -49,6 +58,51 @@ from run_editflow_imgedit_infer import (  # noqa: E402
 
 ALPHA_VIS_SUBDIR = "alpha_vis"
 
+BASIC_CATEGORY_DIRS = (
+    "Action",
+    "Add",
+    "Adjust",
+    "Background",
+    "Compose",
+    "Extract",
+    "Remove",
+    "Replace",
+    "Style",
+)
+
+
+def category_dir_name(edit_type: Optional[str]) -> str:
+    raw = str(edit_type or "unknown").strip()
+    titled = raw[:1].upper() + raw[1:].lower() if raw else "Unknown"
+    for name in BASIC_CATEGORY_DIRS:
+        if name.lower() == titled.lower():
+            return name
+    return titled
+
+
+def basic_case_dir(output_dir: Path, item: Dict, sample_key: str) -> Path:
+    return output_dir / "basic" / category_dir_name(item.get("edit_type")) / sample_key
+
+
+def case_bundle_ready(case_dir: Path) -> bool:
+    return all(
+        (case_dir / name).is_file()
+        for name in ("src.png", "pred.png", "prompt.txt")
+    )
+
+
+def write_basic_case_bundle(
+    case_dir: Path,
+    src_image: Image.Image,
+    pred_image: Image.Image,
+    prompt: str,
+) -> None:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    src_image.save(case_dir / "src.png")
+    pred_image.save(case_dir / "pred.png")
+    (case_dir / "prompt.txt").write_text(
+        (prompt or "").rstrip() + "\n", encoding="utf-8")
+
 
 def alpha_vis_paths(output_dir: Path, rel_score_path: Path, n_steps: int) -> List[Path]:
     """Map a scoring image path to alpha visualization paths."""
@@ -57,6 +111,9 @@ def alpha_vis_paths(output_dir: Path, rel_score_path: Path, n_steps: int) -> Lis
         return []
     stem = rel_score_path.stem
     parent = rel_score_path.parent
+    # Keep alpha_vis flat under suite/ (not under Category/key).
+    if parent.parts and parent.parts[0] == "basic":
+        parent = Path("basic")
     return [
         output_dir / ALPHA_VIS_SUBDIR / parent / f"{stem}_alpha_step{step}.png"
         for step in range(1, n_steps + 1)
@@ -119,9 +176,13 @@ def process_tasks(
         rel_paths = expected_outputs(task_key, item)
         abs_paths = [output_dir / rel for rel in rel_paths]
         alpha_paths = alpha_vis_paths(output_dir, rel_paths[0], num_steps)
+        case_dir = (
+            basic_case_dir(output_dir, item, sample_key)
+            if suite_name == "basic" else None)
         score_ready = all(p.is_file() for p in abs_paths)
         alpha_ready = (not alpha_paths) or all(p.is_file() for p in alpha_paths)
-        if skip_existing and score_ready and alpha_ready:
+        case_ready = case_dir is None or case_bundle_ready(case_dir)
+        if skip_existing and score_ready and alpha_ready and case_ready:
             continue
 
         src_path = resolve_source_path(bench_root, item, task_key)
@@ -157,6 +218,9 @@ def process_tasks(
                     device=device,
                 )
                 result.save(abs_paths[0])
+                if case_dir is not None:
+                    write_basic_case_bundle(
+                        case_dir, image, result, item.get("prompt", ""))
                 for alpha_pil, alpha_path in zip(alpha_items, alpha_paths):
                     alpha_path.parent.mkdir(parents=True, exist_ok=True)
                     alpha_pil.save(alpha_path)
@@ -172,6 +236,15 @@ def process_tasks(
                     device=device,
                 )
                 result.save(abs_paths[0])
+                if case_dir is not None:
+                    write_basic_case_bundle(
+                        case_dir, image, result, item.get("prompt", ""))
+
+        # If only the flat score png is missing but the case bundle exists,
+        # recover the scoring path without re-running the model.
+        if case_dir is not None and case_bundle_ready(case_dir) and not abs_paths[0].is_file():
+            abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(case_dir / "pred.png", abs_paths[0])
 
         manifest[task_key] = {
             "suite": suite_name,
@@ -180,6 +253,7 @@ def process_tasks(
             "prompt": item.get("prompt"),
             "turns": multiturn_prompts(item) if suite_name == "multiturn" else None,
             "outputs": [str(p) for p in abs_paths],
+            "case_dir": str(case_dir) if case_dir is not None else None,
             "alpha_outputs": [str(p) for p in alpha_paths],
             "edit_type": item.get("edit_type"),
         }

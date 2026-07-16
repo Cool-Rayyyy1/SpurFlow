@@ -1,60 +1,73 @@
-_base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
+_base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_qwen.sh` -> gmqwen_uedit_fixedeps_k16_2nfe_pico400k
-# Residual parameterization: pred_delta ~ x0_tgt - x_ref,
-# student_u = path_epsilon - x_ref - pred_delta, teacher_u = path_epsilon - x0_tgt.
-name = 'gmqwen_uedit_fixedeps_k16_2nfe_pico400k'
-qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
-qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
+# `train_flux_edit_fixedeps_alpha_data_lpips.sh`
+# Alpha PIID + step1/step2 LPIPS (20% of PIID) + DINOv3 feature loss.
+name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_lpips'
+kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
+lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
+lpips_vgg16 = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'
+dinov3_model = (
+    '/mnt/afs_zhangyunzhe/pretrained_models/'
+    'dinov3-vitl16-pretrain-lvd1689m/model.safetensors')
 
 model = dict(
-    type='LatentDiffusionQwenImageEdit',
+    type='LatentDiffusionImageEditAlphaLpips',
     vae=dict(
-        type='PretrainedVAEQwenImage',
-        from_pretrained=qwen_model,
+        type='PretrainedVAE',
+        from_pretrained=kontext_model,
         subfolder='vae',
         freeze=True,
-        use_slicing=True,
         torch_dtype='bfloat16'),
+    lpips=dict(
+        weights_path=lpips_weights,
+        vgg_weights_path=lpips_vgg16,
+        spatial=False),
+    dino_loss=dict(
+        checkpoint_path=dinov3_model,
+        input_size=224,
+        feature_layers=(23,),
+        backbone_dtype='bf16',
+        loss_type='cosine'),
     diffusion=dict(
-        type='ArcFlowEditImitation',
-        policy_type='ArcFlowEdit',
+        type='ArcFlowEditAlphaLpipsImitation',
+        policy_type='ArcFlowEditNewAlpha',
         denoising=dict(
-            type='ArcQwenEditImageTransformer2DModel',
+            type='ArcFluxEditNewAlphaTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
                 'proj_out_deltax',
                 'proj_out_logweights',
                 'proj_out_loggamma',
+                'proj_out_alpha',
                 'norm_out',
                 'lora'],
             inherit_proj_out_deltax=False,
             deltax_init='kaiming',
-            pretrained=qwen_transformer,
+            pretrained=kontext_transformer,
             num_gaussians=16,
             logweights_channels=4,
             in_channels=64,
-            out_channels=64,
-            num_layers=60,
+            num_layers=19,
+            num_single_layers=38,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=3584,
-            axes_dims_rope=(16, 56, 56),
-            zero_cond_t=True,
+            joint_attention_dim=4096,
+            pooled_projection_dim=768,
+            guidance_embeds=True,
             torch_dtype='bfloat16',
             checkpointing=True,
             use_lora=True,
             lora_target_modules=[
-                'img_mlp.net.0.proj',
-                'img_mlp.net.2',
+                'proj_mlp',
+                'proj_out',
+                'ff.net.0.proj',
+                'ff.net.2',
+                'ff_context.net.0.proj',
+                'ff_context.net.2',
                 'timestep_embedder.linear_1',
-                'timestep_embedder.linear_2'
-            ] + [
-                f'transformer_blocks.{i}.txt_mlp.net.0.proj' for i in range(59)
-            ] + [
-                f'transformer_blocks.{i}.txt_mlp.net.2' for i in range(59)
-            ],
+                'timestep_embedder.linear_2'],
             lora_dropout=0.05,
             lora_rank=256),
         flow_loss=dict(
@@ -63,40 +76,27 @@ model = dict(
             rescale_mode='constant',
             rescale_cfg=dict(scale=30.0)),
         num_timesteps=1,
-        # Match the official Qwen-Image-Edit scheduler (FlowMatchEulerDiscrete,
-        # use_dynamic_shifting, exponential): logshift 0.5@256 -> 0.9@8192 tokens.
-        # seq_len passed to warp_t is latent h*w = 4x the transformer token count
-        # (2x2 packing), hence base/max_seq_len are scaled by 4.
-        # At ~1024^2 px (4096 tokens) this gives shift ~= e^0.694 ~= 2.0
-        # (the previous fixed shift=3.2 was FLUX's value, not Qwen's).
         timestep_sampler=dict(
             type='ContinuousTimeStepSampler',
-            use_dynamic_shifting=True,
-            base_seq_len=1024,
-            max_seq_len=32768,
-            base_logshift=0.5,
-            max_logshift=0.9,
+            shift=3.2,
             logit_normal_enable=False),
         denoising_mean_mode='U'),
     diffusion_use_ema=True,
     teacher=dict(
         type='GaussianFlow',
         denoising=dict(
-            type='QwenImageEditTransformer2DModel',
+            type='FluxTransformer2DModel',
             patch_size=2,
             freeze=True,
-            pretrained=qwen_transformer,
+            pretrained=kontext_transformer,
             in_channels=64,
-            # HF config reports out_channels=16 with internal patch_size=2 (proj_out=64).
-            # Our wrapper does external patchify and builds the DiT with patch_size=1, so
-            # out_channels must be the packed width (== in_channels == 64).
-            out_channels=64,
-            num_layers=60,
+            num_layers=19,
+            num_single_layers=38,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=3584,
-            axes_dims_rope=(16, 56, 56),
-            zero_cond_t=True,
+            joint_attention_dim=4096,
+            pooled_projection_dim=768,
+            guidance_embeds=True,
             torch_dtype='bfloat16'),
         num_timesteps=1,
         denoising_mean_mode='U'),
@@ -112,20 +112,23 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    # Qwen-Image-Edit is not guidance-distilled; give the teacher true CFG
-    # (official pipeline default: true_cfg_scale=4.0, negative prompt ' ').
-    teacher_guidance_scale=4.0,
-    teacher_negative_prompt=' ',
-    teacher_guidance_norm_rescale=True,
+    # LPIPS total = 20% of PIID scale: loss += 0.2 * mean(lpips_step1, lpips_step2)
+    lpips_loss_weight=0.2,
+    dino_loss_weight=0.1,
+    # Downsample decoded images before LPIPS/DINO to fit single-GPU memory.
+    perceptual_image_size=256,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,
     num_intermediate_states=4,
+    distilled_guidance_scale=3.5,
+    teacher_distilled_guidance_scale=3.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
 )
 test_cfg = dict(
+    distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
     nfe=2,
     timestep_ratio=1.0,
@@ -137,7 +140,6 @@ test_cfg = dict(
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    # Fixed ImgEdit-Bench subset: 9 categories x 5 examples (seeded).
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
@@ -149,19 +151,19 @@ sample_eval = dict(
             'extract', 'remove', 'replace', 'style'],
         samples_per_category=5,
         seed=42,
-        resize_mode='qwen',
+        resize_mode='kontext',
     ),
     interval=save_interval,
     must_save_interval=must_save_interval,
     output_dir='samples',
-    max_samples=None,  # dump the full fixed subset
+    max_samples=None,
     priority='LOW',
 )
 
 data = dict(
     workers_per_gpu=1,
-    train=dict(resize_mode='qwen'),
-    val=dict(resize_mode='qwen'),
+    train=dict(resize_mode='kontext'),
+    val=dict(resize_mode='kontext'),
     train_dataloader=dict(samples_per_gpu=1),
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
@@ -175,7 +177,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 50000
+total_iters = 20000
 log_config = dict(
     interval=1,
     hooks=[

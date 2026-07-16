@@ -5,7 +5,7 @@
 #   Case A (local_enabled=False): global + random local, unpaired real images.
 #   Case B (local_enabled=True): global + alpha-mask local, paired ref/edit.
 #   Mask local crop uses step-2 alpha.detach() (edit mass = ref - alpha); fallback to global full.
-#   GAN grads flow through both 2-NFE rollout steps (gan_grad_step2_only=false by default).
+#   GAN grads update the student only through the final NFE step (gan_grad_step2_only=true by default).
 #   Sample eval: ImgEdit-Bench 9 categories x 5 (same as train_flux_edit_fixedeps_alpha_data.sh).
 #
 #   Uses FSDP (configs/kontext/_fsdp_train.py) to shard diffusion/teacher.
@@ -17,7 +17,7 @@
 #
 # Pretrain / fresh (expects alpha ckpt with proj_out_alpha):
 #   PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh
-#   FRESH=1 bash train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh
+#   FRESH=1 bash train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh   # skip auto-resume; still loads PRETRAIN_CKPT
 
 set -euo pipefail
 
@@ -55,7 +55,8 @@ PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/model/gmkontext_uedit_fixedeps_alpha
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
 STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.05}"
-GAN_GRAD_STEP2_ONLY="${GAN_GRAD_STEP2_ONLY:-false}"
+DIRECT_DELTA_WEIGHT="${DIRECT_DELTA_WEIGHT:-0.5}"
+GAN_GRAD_STEP2_ONLY="${GAN_GRAD_STEP2_ONLY:-true}"
 NUM_DECAY_ITERS="${NUM_DECAY_ITERS:-0}"
 DINO_GLOBAL_SIZE="${DINO_GLOBAL_SIZE:-224}"
 DINO_LOCAL_SIZE="${DINO_LOCAL_SIZE:-224}"
@@ -87,14 +88,14 @@ export PICO_BANANA_PATH="${DATA_ROOT}"
 CKPT_BASE="checkpoints/${RUN_NAME}"
 LOAD_FROM=""
 RESUME_FROM=""
-if [[ "${FRESH}" != "1" ]]; then
-    if [[ -n "${PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${PRETRAIN_CKPT}" ]]; then
-        LOAD_FROM="${PRETRAIN_CKPT}"
-        echo "[pretrain] loading alpha student weights from ${LOAD_FROM}"
-    else
-        echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT}); starting from scratch" >&2
-    fi
+if [[ -n "${PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${PRETRAIN_CKPT}" ]]; then
+    LOAD_FROM="${PRETRAIN_CKPT}"
+    echo "[pretrain] loading alpha student weights from ${LOAD_FROM}"
+elif [[ -n "${PRETRAIN_CKPT}" ]]; then
+    echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT}); starting from scratch" >&2
+fi
 
+if [[ "${FRESH}" != "1" ]]; then
     RESUME_RUN_ID="${RESUME_RUN_DIR:-${RUN_ID:-}}"
     if [[ -z "${RESUME_RUN_ID}" && -d "${PROJECT_DIR}/${CKPT_BASE}" ]]; then
         for _cand in $(ls -1dt "${PROJECT_DIR}/${CKPT_BASE}"/*/ 2>/dev/null); do
@@ -129,6 +130,7 @@ CFG_OPTS=(
     "train_cfg.split_stage_gan_warmup_iters=${STEP2_GAN_WARMUP_ITERS}"
     "train_cfg.split_stage_gan_ramp_iters=${STEP2_GAN_RAMP_ITERS}"
     "train_cfg.split_stage_gan_loss_weight=${STEP2_GAN_WEIGHT}"
+    "train_cfg.direct_delta_loss_weight=${DIRECT_DELTA_WEIGHT}"
     "train_cfg.gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}"
     "train_cfg.num_decay_iters=${NUM_DECAY_ITERS}"
     "model.discriminator.checkpoint_path=${DINOV3_MODEL}"
@@ -170,7 +172,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  gan_weight=${STEP2_GAN_WEIGHT}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  gan_weight=${STEP2_GAN_WEIGHT}  direct_delta_weight=${DIRECT_DELTA_WEIGHT}  gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_alph_dino_gan.py \

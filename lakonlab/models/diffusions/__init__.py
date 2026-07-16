@@ -11,6 +11,7 @@ from .arcflow_edit import (
 )
 from .arcflow_edit_new import ArcFlowEditNewImitation
 from .arcflow_edit_alpha import ArcFlowEditAlphaImitation
+from .arcflow_edit_alpha_lpips import ArcFlowEditAlphaLpipsImitation
 from .arcflow_edit_teacherinv_eps import ArcFlowEditTeacherInvEpsImitation
 from .arcflow_edit_dmd2 import ArcFlowEditDMD2Imitation
 
@@ -21,6 +22,7 @@ __all__ = [
     'ArcFlowEditImitationSplitStageDualLoraGAN',
     'ArcFlowEditImitationStep2GAN',
     'ArcFlowEditNewImitation', 'ArcFlowEditAlphaImitation',
+    'ArcFlowEditAlphaLpipsImitation',
     'ArcFlowEditTeacherInvEpsImitation',
     'ArcFlowEditDMD2Imitation',
 ]

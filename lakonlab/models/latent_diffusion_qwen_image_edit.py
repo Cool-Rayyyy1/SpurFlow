@@ -80,7 +80,13 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
 
         def _pad(embed_kwargs):
             embeds = embed_kwargs['encoder_hidden_states']
-            mask = embed_kwargs['encoder_hidden_states_mask']
+            mask = embed_kwargs.get('encoder_hidden_states_mask')
+            # diffusers drops the mask when every token is valid; synthesize one
+            # so CFG padding can still right-pad shorter negative prompts.
+            if mask is None:
+                mask = torch.ones(
+                    embeds.size(0), embeds.size(1),
+                    dtype=torch.long, device=embeds.device)
             pad_len = max_len - embeds.size(1)
             if pad_len > 0:
                 embeds = F.pad(embeds, (0, 0, 0, pad_len))
@@ -180,9 +186,8 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
                     raise ValueError(
                         'Either `negative_prompt_embed_kwargs` or `negative_prompt_kwargs` should be provided in the '
                         'input data for classifier-free guidance.')
-                embed_kwargs = {
-                    k: torch.cat([negative_prompt_embed_kwargs[k], v], dim=0)
-                    for k, v in prompt_embed_kwargs.items()}
+                embed_kwargs = self._cat_padded_prompt_embeds(
+                    negative_prompt_embed_kwargs, prompt_embed_kwargs)
             else:
                 embed_kwargs = prompt_embed_kwargs.copy()
 

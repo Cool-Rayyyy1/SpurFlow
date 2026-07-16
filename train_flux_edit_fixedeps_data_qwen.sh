@@ -6,7 +6,7 @@
 #   DiT backbone from Qwen-Image-Edit; deltax_init=kaiming on proj_out_deltax (not Qwen proj_out).
 #   inherit_proj_out_deltax=False — deltax does NOT copy proj_out.
 #
-#   Uses FSDP (configs/qwen/_fsdp_train_edit.py) to shard diffusion/teacher/text_encoder.
+#   Sample eval: ImgEdit-Bench 9 categories x 5 (same as train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh).
 #
 #   bash train_flux_edit_fixedeps_data_qwen.sh              # default: 2 GPUs
 #   bash train_flux_edit_fixedeps_data_qwen.sh 8
@@ -41,6 +41,7 @@ NFE="${NFE:-2}"
 CKPT_INTERVAL="${CKPT_INTERVAL:-500}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
 SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
+SAMPLES_PER_CATEGORY="${SAMPLES_PER_CATEGORY:-5}"
 TOTAL_ITERS="${TOTAL_ITERS:-50000}"
 EVAL="${EVAL:-1}"
 DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
@@ -97,6 +98,7 @@ CFG_OPTS=(
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"
     "sample_eval.interval=${SAMPLE_INTERVAL}"
     "sample_eval.must_save_interval=0"
+    "sample_eval.dataset.samples_per_category=${SAMPLES_PER_CATEGORY}"
     "total_iters=${TOTAL_ITERS}"
     "data.train.data_root=${DATA_ROOT}"
     "data.val.data_root=${DATA_ROOT}"
@@ -112,7 +114,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow Qwen uedit fixed-eps FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  run=${RUN_NAME}  ckpts=checkpoints/${RUN_NAME}/  model=${QWEN_MODEL}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow Qwen uedit fixed-eps FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  samples_per_category=${SAMPLES_PER_CATEGORY}  run=${RUN_NAME}  ckpts=checkpoints/${RUN_NAME}/  model=${QWEN_MODEL}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/qwen/editqwen_uedit_fixedeps_2nfe_k16_data.py \
