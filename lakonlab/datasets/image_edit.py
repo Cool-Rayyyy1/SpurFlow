@@ -123,7 +123,8 @@ class ImageEdit(Dataset):
             end_ind: Optional[int] = None,
             test_mode: bool = False,
             require_edited: bool = False,
-            resize_mode: str = 'center_crop'):
+            resize_mode: str = 'center_crop',
+            load_unpaired_edited: bool = False):
         super().__init__()
         assert resize_mode in ('center_crop', 'kontext', 'qwen'), (
             f'Unsupported resize_mode={resize_mode}; expected center_crop, kontext, or qwen.')
@@ -136,6 +137,7 @@ class ImageEdit(Dataset):
         self.test_mode = test_mode
         self.require_edited = require_edited
         self.resize_mode = resize_mode
+        self.load_unpaired_edited = bool(load_unpaired_edited)
         self._skip_warned = False
 
         jsonl_full = jsonl_path if os.path.isabs(jsonl_path) else os.path.join(self.data_root, jsonl_path)
@@ -232,6 +234,38 @@ class ImageEdit(Dataset):
     def _map_idx(self, idx):
         return self.start_ind + (idx // self.repeat) % (self.end_ind - self.start_ind)
 
+    def _sample_unpaired_edited(
+            self,
+            bucket: Optional[Tuple[int, int]],
+            exclude_mapped_idx: Optional[int] = None,
+            max_tries: int = 32) -> Optional[torch.Tensor]:
+        """Load a random edited image from the dataset (not batch-shuffle).
+
+        Resized to the current sample's bucket / image_size so GAN crops align
+        with the fake decode resolution. Independent of samples_per_gpu.
+        """
+        num_records = self.end_ind - self.start_ind
+        if num_records <= 0:
+            return None
+        for _ in range(int(max_tries)):
+            mapped_idx = self.start_ind + int(np.random.randint(0, num_records))
+            if exclude_mapped_idx is not None and mapped_idx == exclude_mapped_idx:
+                if num_records <= 1:
+                    return None
+                continue
+            row = self.records[mapped_idx]
+            target_raw = self._pick(row, self.target_keys)
+            if target_raw is None:
+                continue
+            target_path = self._resolve_target(target_raw)
+            if target_path is None:
+                continue
+            try:
+                return self._to_tensor(_load_rgb(target_path), bucket)
+            except OSError:
+                continue
+        return None
+
     def __len__(self):
         return self.repeat * (self.end_ind - self.start_ind)
 
@@ -313,6 +347,11 @@ class ImageEdit(Dataset):
                 return None
             data['edited_images'] = edited_tensor
             data['latents'] = torch.empty(latent_size, dtype=torch.float32)
+            if self.load_unpaired_edited:
+                unpaired = self._sample_unpaired_edited(
+                    bucket, exclude_mapped_idx=mapped_idx)
+                data['unpaired_edited_images'] = (
+                    unpaired if unpaired is not None else edited_tensor)
         elif self.require_edited:
             self._warn_skip_once(mapped_idx, 'missing edited image path')
             return None

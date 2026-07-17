@@ -2,7 +2,8 @@
 # EditFlow fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN:
 #   Standard random-segment PIID with ArcFlowEditNewAlpha (low alpha ~ edit region).
 #   Step-2 endpoint: Kontext VAE decode -> shared crop specs:
-#   Case A (local_enabled=False): global + random local, unpaired real images.
+#   Case A (local_enabled=False): global + random local; real = random edited
+#       image sampled from the dataset (load_unpaired_edited; works at bs=1).
 #   Case B (local_enabled=True): global + alpha-mask local, paired ref/edit.
 #   Mask local crop uses step-2 alpha.detach() (edit mass = ref - alpha); fallback to global full.
 #   GAN grads update the student only through the final NFE step (gan_grad_step2_only=true by default).

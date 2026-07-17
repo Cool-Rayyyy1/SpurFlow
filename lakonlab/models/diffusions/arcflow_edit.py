@@ -195,6 +195,9 @@ class ArcFlowEditImitation(ArcFlowImitation):
         nfe = cfg['nfe']
         timestep_ratio = max(cfg.get('timestep_ratio', 1.0), eps)
         base_segment_size = 1 / (nfe - 1 + timestep_ratio)
+        # If True: final NFE predicts pred_delta and returns x_ref (+alpha) +
+        # pred_delta as x0, skipping the last velocity integration step.
+        step2_direct_x0 = bool(cfg.get('step2_direct_x0', False))
 
         raw_t_src = torch.ones((num_batches,), dtype=torch.float32, device=device)
         sigma_t_src = self.timestep_sampler.warp_t(raw_t_src, seq_len=seq_len).reshape(
@@ -220,6 +223,17 @@ class ArcFlowEditImitation(ArcFlowImitation):
             if not is_final_step:
                 temperature = cfg.get('temperature', 1.0)
                 policy.temperature_(temperature)
+
+            if is_final_step and step2_direct_x0:
+                # Step-2 shortcut: x0 = alpha*x_ref + pred_delta (or x_ref + pred_delta).
+                pred_delta = policy.compute_pred_delta(sigma_t_src, sigma_t_src)
+                if hasattr(policy, 'alpha'):
+                    x_t_src = policy.alpha * policy.x_ref + pred_delta
+                else:
+                    x_t_src = policy.x_ref + pred_delta
+                if show_pbar:
+                    pbar.update()
+                break
 
             x_t_dst, sigma_t_dst, t_dst = self.momentum_integration(
                 sigma_t_src, x_t_src, sigma_t_src, raw_t_dst,

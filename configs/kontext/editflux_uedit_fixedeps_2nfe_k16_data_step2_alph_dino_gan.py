@@ -4,7 +4,8 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # Fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN with mask-guided local crop.
 # Fake: 2-NFE rollout -> step2 alpha + endpoint latent -> VAE decode.
 # Crops (shared real/fake): full global, random local, alpha-mask local (low alpha = edit).
-# GAN grads flow through both NFE steps (gan_grad_step2_only=False by default).
+# Case A reals: dataset-sampled unpaired edited images (load_unpaired_edited=True).
+# GAN grads: gan_grad_step2_only=True by default.
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -215,7 +216,9 @@ sample_eval = dict(
 
 data = dict(
     workers_per_gpu=1,
-    train=dict(resize_mode='kontext'),
+    # Case A GAN realism: sample a random edited image from the dataset
+    # (not batch-shuffle; works with samples_per_gpu=1).
+    train=dict(resize_mode='kontext', load_unpaired_edited=True),
     val=dict(resize_mode='kontext'),
     train_dataloader=dict(samples_per_gpu=1),
     val_dataloader=dict(samples_per_gpu=1),

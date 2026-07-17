@@ -328,7 +328,8 @@ def sample_dino_alpha_mask_crop_specs(
     """Shared crop specs with two modes (always global + one local slot).
 
     Case A (``local_enabled=False``, prob ``p_disable_local``):
-        crops = [full global, random local]; use unpaired real images in GAN.
+        crops = [full global, random local]; use dataset-sampled unpaired
+        edited images as GAN reals (see ``ImageEdit.load_unpaired_edited``).
     Case B (``local_enabled=True``):
         crops = [full global, alpha-mask local]; use paired ref/edit real images.
         Mask failure falls back to full global (no random local).

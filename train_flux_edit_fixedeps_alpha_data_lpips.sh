@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # EditFlow fixed-eps alpha + LPIPS + DINOv3 feature losses:
 #   PIID (random segment) as in train_flux_edit_fixedeps_alpha_data.sh
-#   + 2-NFE rollout: step1/step2 analytic x0_hat = alpha*x_ref + pred_delta
-#   + VAE decode each x0_hat vs edited image:
+#   + same-segment analytic x0_hat = alpha*x_ref + pred_delta (no extra rollout)
+#   + VAE decode x0_hat vs edited image:
 #       LPIPS  weight = 0.2  (20% of PIID scale)
 #       DINO   weight = 0.1  (frozen dinov3-vitl16 feature cosine)
 #

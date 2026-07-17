@@ -1,7 +1,7 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
 # `train_flux_edit_fixedeps_alpha_data_lpips.sh`
-# Alpha PIID + step1/step2 LPIPS (20% of PIID) + DINOv3 feature loss.
+# Alpha PIID + same-segment analytic x0 LPIPS (20% of PIID) + DINOv3 feature loss.
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_lpips'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -112,10 +112,10 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    # LPIPS total = 20% of PIID scale: loss += 0.2 * mean(lpips_step1, lpips_step2)
+    # LPIPS / DINO on the same random-segment x0_hat (no 2-NFE rollout).
     lpips_loss_weight=0.2,
     dino_loss_weight=0.1,
-    # Downsample decoded images before LPIPS/DINO to fit single-GPU memory.
+    # Downsample decoded images before LPIPS/DINO.
     perceptual_image_size=256,
     num_decay_iters=2000,
     window_substeps=3,

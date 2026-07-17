@@ -1,6 +1,7 @@
 # Copyright (c) 2026 EditFlow contributors
 
 import torch
+import torch.nn.functional as F
 
 from typing import Dict, Optional
 
@@ -237,21 +238,28 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
     @staticmethod
     def _prepare_gan_real_images(
             real_images: torch.Tensor,
-            crop_meta: Optional[Dict[str, torch.Tensor]]) -> torch.Tensor:
-        """Case A (~local_enabled): unpaired shuffle; Case B (local_enabled): paired edit."""
+            crop_meta: Optional[Dict[str, torch.Tensor]],
+            unpaired_images: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Case A (~local_enabled): dataset-sampled unpaired edit; Case B: paired edit."""
         if crop_meta is None or 'local_enabled' not in crop_meta:
             return real_images
-        real_for_gan = real_images.clone()
         local_enabled = crop_meta['local_enabled'].to(
             device=real_images.device, dtype=torch.bool)
         unpaired_mask = ~local_enabled
-        if not bool(unpaired_mask.any()):
-            return real_for_gan
-        batch_size = real_images.shape[0]
-        if batch_size <= 1:
-            return real_for_gan
-        perm = torch.randperm(batch_size, device=real_images.device)
-        real_for_gan[unpaired_mask] = real_images[perm][unpaired_mask]
+        if not bool(unpaired_mask.any()) or unpaired_images is None:
+            return real_images
+        real_for_gan = real_images.clone()
+        unpaired = unpaired_images.to(
+            device=real_images.device, dtype=real_images.dtype)
+        if unpaired.shape[-2:] != real_images.shape[-2:]:
+            unpaired = F.interpolate(
+                unpaired.float(),
+                size=real_images.shape[-2:],
+                mode='bicubic',
+                align_corners=False,
+                antialias=True,
+            ).clamp(0.0, 1.0).to(dtype=real_images.dtype)
+        real_for_gan[unpaired_mask] = unpaired[unpaired_mask]
         return real_for_gan
 
     def train_minibatch(self, data, loss_scaler=None, running_status=None):
@@ -269,6 +277,7 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
         step2_latent = extra.get('step2_latent')
         step2_alpha = extra.get('step2_alpha')
         real_images = data.get('edited_images')
+        unpaired_images = data.get('unpaired_edited_images')
         w_gan = self.train_cfg.get('split_stage_gan_loss_weight', 1.0)
         gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
         log_vars['gan_loss_scale'] = gan_scale
@@ -289,7 +298,8 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 image_height=height,
                 image_width=width)
             crop_meta = getattr(disc, '_last_crop_meta', None)
-            gan_real_images = self._prepare_gan_real_images(real_images, crop_meta)
+            gan_real_images = self._prepare_gan_real_images(
+                real_images, crop_meta, unpaired_images=unpaired_images)
 
             loss_d = self.discriminator(
                 real_images=gan_real_images,

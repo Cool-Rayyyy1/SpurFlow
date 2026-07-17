@@ -16,19 +16,20 @@ from .losses.perceptual_edit_loss import (
 
 @MODELS.register_module()
 class LatentDiffusionImageEditAlphaLpips(LatentDiffusionImageEdit):
-    """Alpha PIID + step1/step2 LPIPS and DINOv3 feature losses.
+    """Alpha PIID + LPIPS/DINO on the same random-segment analytic x0.
 
-    After the diffusion PIID loss, runs a 2-NFE rollout, decodes each step's
-    analytic ``x0_hat`` with the frozen VAE, and compares to ``edited_images``:
+    Uses the student prediction from the PIID-sampled segment:
+
+        x0_hat = alpha * x_ref + pred_delta
+
+    then VAE-decodes and compares to ``edited_images``:
 
       loss = loss_piid
-           + lpips_loss_weight * mean(LPIPS_step1, LPIPS_step2)
-           + dino_loss_weight  * mean(DINO_step1,  DINO_step2)
+           + lpips_loss_weight * LPIPS(x0_hat)
+           + dino_loss_weight  * DINO(x0_hat)
 
-    Default ``lpips_loss_weight=0.2`` so LPIPS is 20% of the PIID term scale.
-
-    Memory: PIID and perceptual are backward'ed separately; decoded images are
-    downsampled to ``perceptual_image_size`` before LPIPS/DINO.
+    No extra 2-NFE rollout. PIID and perceptual share one student ``pred``;
+    they are backward'ed together so the shared graph stays valid.
     """
 
     def __init__(
@@ -57,7 +58,7 @@ class LatentDiffusionImageEditAlphaLpips(LatentDiffusionImageEdit):
         self.lpips.eval()
         self.dino_loss.eval()
 
-    def _decode_rollout_latents_to_images(self, latents):
+    def _decode_latents_to_images(self, latents):
         if self.vae is None:
             raise ValueError('VAE is required to decode latents for LPIPS/DINO.')
         latents = self.unpatchify(latents)
@@ -71,7 +72,7 @@ class LatentDiffusionImageEditAlphaLpips(LatentDiffusionImageEdit):
     def _prepare_train_minibatch_args(self, data, running_status=None):
         bs, diffusion_args, diffusion_kwargs = super()._prepare_train_minibatch_args(
             data, running_status)
-        diffusion_kwargs['return_step_x0s'] = True
+        diffusion_kwargs['return_x0_hat'] = True
         return bs, diffusion_args, diffusion_kwargs
 
     def _resize_for_perceptual(self, images, size):
@@ -105,41 +106,30 @@ class LatentDiffusionImageEditAlphaLpips(LatentDiffusionImageEdit):
             loss_diffusion, log_vars = outputs
             extra = dict()
 
-        # Free PIID activations before building the VAE/LPIPS/DINO graph.
-        self._backward(loss_diffusion, loss_scaler)
         log_vars['loss_diffusion'] = float(loss_diffusion.detach())
+        loss = loss_diffusion
         loss_total_val = float(loss_diffusion.detach())
 
-        step_x0s = extra.get('step_x0s') or []
+        x0_hat = extra.get('x0_hat')
         real_images = data.get('edited_images')
         w_lpips = float(self.train_cfg.get('lpips_loss_weight', 0.2))
         w_dino = float(self.train_cfg.get('dino_loss_weight', 0.2))
         perc_size = int(self.train_cfg.get('perceptual_image_size', 256))
 
-        if step_x0s and real_images is not None and (w_lpips > 0 or w_dino > 0):
+        if x0_hat is not None and real_images is not None and (w_lpips > 0 or w_dino > 0):
             target = self._resize_for_perceptual(
                 real_images.float().clamp(0.0, 1.0), perc_size)
-            lpips_terms = []
-            dino_terms = []
-            for step_id, x0_hat in enumerate(step_x0s, start=1):
-                pred_images = self._decode_rollout_latents_to_images(x0_hat)
-                pred_images = self._resize_for_perceptual(pred_images, perc_size)
-                loss_lpips_i, loss_dino_i = self._perceptual_pair_loss(
-                    pred_images, target)
-                lpips_terms.append(loss_lpips_i)
-                dino_terms.append(loss_dino_i)
-                log_vars[f'loss_lpips_step{step_id}'] = float(loss_lpips_i.detach())
-                log_vars[f'loss_dino_step{step_id}'] = float(loss_dino_i.detach())
-                del pred_images
-
-            loss_lpips = torch.stack(lpips_terms).mean()
-            loss_dino = torch.stack(dino_terms).mean()
+            pred_images = self._decode_latents_to_images(x0_hat)
+            pred_images = self._resize_for_perceptual(pred_images, perc_size)
+            loss_lpips, loss_dino = self._perceptual_pair_loss(pred_images, target)
             log_vars['loss_lpips'] = float(loss_lpips.detach())
             log_vars['loss_dino'] = float(loss_dino.detach())
             loss_perc = w_lpips * loss_lpips + w_dino * loss_dino
-            self._backward(loss_perc, loss_scaler)
+            # Same student pred as PIID: one combined backward (shared graph).
+            loss = loss + loss_perc
             loss_total_val = loss_total_val + float(loss_perc.detach())
-            del loss_lpips, loss_dino, loss_perc, target, lpips_terms, dino_terms
+            del pred_images, target, loss_lpips, loss_dino, loss_perc, x0_hat
 
+        self._backward(loss, loss_scaler)
         log_vars['loss'] = loss_total_val
         return log_vars, bs
