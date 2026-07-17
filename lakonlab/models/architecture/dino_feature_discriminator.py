@@ -207,13 +207,23 @@ def compute_mask_guided_crop_spec(
         mass_threshold_percentile: float = 30.0,
         mass_coverage_min: float = 0.85,
         mass_coverage_max: float = 0.90,
-        union_area_max_ratio: float = 0.55,
-        bbox_expand_factor: float = 1.4,
-        min_crop_area_ratio: float = 0.05,
-        max_crop_area_ratio: float = 0.55,
+        union_area_max_ratio: float = 0.35,
+        bbox_expand_factor: float = 1.1,
+        min_crop_area_ratio: float = 0.01,
+        max_crop_area_ratio: float = 0.35,
         min_edit_mass_ratio: float = 0.002,
-        min_component_pixels: int = 16) -> Optional[Tuple[float, float, float, float]]:
-    """Build one normalized crop spec from a single-sample alpha map (H, W)."""
+        min_component_pixels: int = 16,
+        hot_mass_frac: float = 0.40) -> Optional[Tuple[float, float, float, float]]:
+    """Build a tight crop from the edit-mass heatmap hot core (red region).
+
+    Matches the edit-mass vis colormap: red kicks in around ``t ≳ 0.35`` where
+    ``t = edit_mass / max``. We threshold at ``hot_mass_frac * max`` (default 0.4),
+    keep the largest connected hot blob, then pad with a small square expand.
+
+    ``mass_coverage_*`` / ``union_area_max_ratio`` are kept for API compatibility
+    but are no longer used to accumulate many weak components.
+    """
+    del mass_coverage_min, mass_coverage_max, union_area_max_ratio  # unused (legacy API)
     alpha_np = alpha_map.detach().float().cpu().numpy()
     height, width = alpha_np.shape
     if height <= 1 or width <= 1:
@@ -243,56 +253,43 @@ def compute_mask_guided_crop_spec(
     if total_mass <= min_edit_mass_ratio * height * width:
         return None
 
-    active_thr = max(float(edit_mass.max()) * 0.05, 1e-8)
-    binary = edit_mass >= active_thr
+    vmax = float(edit_mass.max())
+    if vmax <= 1e-12:
+        return None
+
+    # Hot core ≈ red region on edit-mass heatmap.
+    hot_frac = float(np.clip(hot_mass_frac, 0.05, 0.95))
+    hot_thr = max(vmax * hot_frac, 1e-8)
+    binary = edit_mass >= hot_thr
+    if int(binary.sum()) < int(min_component_pixels):
+        # Mild relax toward orange/yellow mid-tones, still above weak blue halo.
+        hot_thr = max(vmax * max(hot_frac * 0.7, 0.25), 1e-8)
+        binary = edit_mass >= hot_thr
+    if int(binary.sum()) < int(min_component_pixels):
+        return None
+
     labeled, num_labels = _label_connected_components(binary)
     if num_labels <= 0:
         return None
 
-    components = []
+    best_mask = None
+    best_mass = -1.0
     for label_id in range(1, num_labels + 1):
         comp_mask = labeled == label_id
         pixel_count = int(comp_mask.sum())
-        if pixel_count < min_component_pixels:
+        if pixel_count < int(min_component_pixels):
             continue
         mass = float(edit_mass[comp_mask].sum())
-        bbox = _bbox_from_mask(comp_mask)
-        if bbox is None:
-            continue
-        y0, y1, x0, x1 = bbox
-        area_ratio = ((y1 - y0) * (x1 - x0)) / float(height * width)
-        components.append(dict(
-            label_id=label_id,
-            mass=mass,
-            pixel_count=pixel_count,
-            bbox=bbox,
-            area_ratio=area_ratio,
-        ))
-    if not components:
+        if mass > best_mass:
+            best_mass = mass
+            best_mask = comp_mask
+    if best_mask is None:
         return None
 
-    components.sort(key=lambda item: item['mass'], reverse=True)
-    coverage_target = 0.5 * (mass_coverage_min + mass_coverage_max)
-    selected = []
-    covered_mass = 0.0
-    for comp in components:
-        selected.append(comp)
-        covered_mass += comp['mass']
-        if covered_mass / total_mass >= coverage_target:
-            break
-
-    union_mask = np.zeros((height, width), dtype=bool)
-    for comp in selected:
-        union_mask |= labeled == comp['label_id']
-    union_bbox = _bbox_from_mask(union_mask)
-    if union_bbox is None:
+    bbox = _bbox_from_mask(best_mask)
+    if bbox is None:
         return None
-    uy0, uy1, ux0, ux1 = union_bbox
-    union_area_ratio = ((uy1 - uy0) * (ux1 - ux0)) / float(height * width)
-    if union_area_ratio > union_area_max_ratio:
-        union_bbox = components[0]['bbox']
-        uy0, uy1, ux0, ux1 = union_bbox
-
+    uy0, uy1, ux0, ux1 = bbox
     return _expand_square_bbox(
         uy0, uy1, ux0, ux1, height, width,
         expand_factor=bbox_expand_factor,
@@ -318,12 +315,13 @@ def sample_dino_alpha_mask_crop_specs(
         mass_threshold_percentile: float = 30.0,
         mass_coverage_min: float = 0.85,
         mass_coverage_max: float = 0.90,
-        union_area_max_ratio: float = 0.55,
-        bbox_expand_factor: float = 1.4,
-        min_crop_area_ratio: float = 0.05,
-        max_crop_area_ratio: float = 0.55,
+        union_area_max_ratio: float = 0.35,
+        bbox_expand_factor: float = 1.1,
+        min_crop_area_ratio: float = 0.01,
+        max_crop_area_ratio: float = 0.35,
         min_edit_mass_ratio: float = 0.002,
         min_component_pixels: int = 16,
+        hot_mass_frac: float = 0.40,
         rng: Optional[torch.Generator] = None) -> Tuple[List[torch.Tensor], Dict[str, torch.Tensor]]:
     """Shared crop specs with two modes (always global + one local slot).
 
@@ -372,6 +370,7 @@ def sample_dino_alpha_mask_crop_specs(
                 max_crop_area_ratio=max_crop_area_ratio,
                 min_edit_mass_ratio=min_edit_mass_ratio,
                 min_component_pixels=min_component_pixels,
+                hot_mass_frac=hot_mass_frac,
             )
             if spec is None:
                 mask_fallback[batch_idx] = True
@@ -795,12 +794,13 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             mass_threshold_percentile: float = 30.0,
             mass_coverage_min: float = 0.85,
             mass_coverage_max: float = 0.90,
-            union_area_max_ratio: float = 0.55,
-            bbox_expand_factor: float = 1.4,
-            min_crop_area_ratio: float = 0.05,
-            max_crop_area_ratio: float = 0.55,
+            union_area_max_ratio: float = 0.35,
+            bbox_expand_factor: float = 1.1,
+            min_crop_area_ratio: float = 0.01,
+            max_crop_area_ratio: float = 0.35,
             min_edit_mass_ratio: float = 0.002,
             min_component_pixels: int = 16,
+            hot_mass_frac: float = 0.40,
             gan_global_weight: float = 1.0,
             gan_random_local_weight: float = 1.0,
             gan_mask_local_weight: float = 1.0,
@@ -822,6 +822,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
         self.max_crop_area_ratio = float(max_crop_area_ratio)
         self.min_edit_mass_ratio = float(min_edit_mass_ratio)
         self.min_component_pixels = int(min_component_pixels)
+        self.hot_mass_frac = float(hot_mass_frac)
         self.gan_global_weight = float(gan_global_weight)
         self.gan_random_local_weight = float(gan_random_local_weight)
         self.gan_mask_local_weight = float(gan_mask_local_weight)
@@ -865,6 +866,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             max_crop_area_ratio=self.max_crop_area_ratio,
             min_edit_mass_ratio=self.min_edit_mass_ratio,
             min_component_pixels=self.min_component_pixels,
+            hot_mass_frac=self.hot_mass_frac,
         )
         self._last_crop_meta = meta
         return crop_specs

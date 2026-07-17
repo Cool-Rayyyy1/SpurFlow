@@ -37,6 +37,7 @@ from crop_mask_vis import (  # noqa: E402
     make_crop_panel,
     render_crop_boxes_overlay,
     render_edit_mass_heatmap,
+    render_hot_mask_overlay,
 )
 from run_editflow_imgedit_infer import (  # noqa: E402
     pil_to_tensor,
@@ -68,10 +69,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--mass_threshold_percentile', type=float, default=30.0)
     p.add_argument('--mass_coverage_min', type=float, default=0.85)
     p.add_argument('--mass_coverage_max', type=float, default=0.90)
-    p.add_argument('--union_area_max_ratio', type=float, default=0.55)
-    p.add_argument('--bbox_expand_factor', type=float, default=1.4)
-    p.add_argument('--min_crop_area_ratio', type=float, default=0.05)
-    p.add_argument('--max_crop_area_ratio', type=float, default=0.55)
+    p.add_argument('--hot_mass_frac', type=float, default=0.40,
+                   help='Keep edit_mass >= frac*max (heatmap red core).')
+    p.add_argument('--union_area_max_ratio', type=float, default=0.35)
+    p.add_argument('--bbox_expand_factor', type=float, default=1.1)
+    p.add_argument('--min_crop_area_ratio', type=float, default=0.01)
+    p.add_argument('--max_crop_area_ratio', type=float, default=0.35)
     p.add_argument('--min_edit_mass_ratio', type=float, default=0.002)
     p.add_argument('--min_component_pixels', type=int, default=16)
     p.add_argument('--skip_existing', action='store_true')
@@ -179,6 +182,7 @@ def main() -> None:
             max_crop_area_ratio=args.max_crop_area_ratio,
             min_edit_mass_ratio=args.min_edit_mass_ratio,
             min_component_pixels=args.min_component_pixels,
+            hot_mass_frac=args.hot_mass_frac,
             seed=args.seed + idx,
         )
 
@@ -193,6 +197,15 @@ def main() -> None:
             mass_threshold_percentile=args.mass_threshold_percentile,
             step_label='step2',
         ).save(out_dir / 'step2_edit_mass_heatmap.png')
+
+        render_hot_mask_overlay(
+            src_pil,
+            step2_alpha,
+            edit_is_low_alpha=args.edit_is_low_alpha,
+            mass_threshold_percentile=args.mass_threshold_percentile,
+            hot_mass_frac=args.hot_mass_frac,
+            step_label='step2',
+        ).save(out_dir / 'step2_hot_mask.png')
 
         local_enabled = bool(meta['local_enabled'][0].item())
         mask_fallback = bool(meta['mask_fallback'][0].item())

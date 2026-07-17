@@ -4,6 +4,7 @@
 # Per sample outputs under evaluation/outputs/step2_alph_dino_gan_crop_vis/<tag>/val_XXXXX/:
 #   crop_panel.png          — 2×2: src | edit-mass heatmap / crop boxes | mask zoom
 #   step2_edit_mass_heatmap.png — low-α edit region heatmap (what drives mask crop)
+#   step2_hot_mask.png          — binary hot-core mask (edit_mass ≥ hot_mass_frac·max)
 #   step2_alpha_heatmap.png     — raw step2 α heatmap
 #   crop_boxes_overlay.png      — global (green) / random local (blue) / mask local (red)
 #   mask_crop_zoom.png          — cropped mask-local region
@@ -59,10 +60,11 @@ python "${PROJECT_DIR}/evaluation/run_step2_alph_dino_gan_crop_vis.py" \
     --mass_threshold_percentile "${MASS_THRESHOLD_PERCENTILE:-30.0}" \
     --mass_coverage_min "${MASS_COVERAGE_MIN:-0.85}" \
     --mass_coverage_max "${MASS_COVERAGE_MAX:-0.90}" \
-    --union_area_max_ratio "${UNION_AREA_MAX_RATIO:-0.55}" \
-    --bbox_expand_factor "${BBOX_EXPAND_FACTOR:-1.4}" \
-    --min_crop_area_ratio "${MIN_CROP_AREA_RATIO:-0.05}" \
-    --max_crop_area_ratio "${MAX_CROP_AREA_RATIO:-0.55}" \
+    --hot_mass_frac "${HOT_MASS_FRAC:-0.40}" \
+    --union_area_max_ratio "${UNION_AREA_MAX_RATIO:-0.35}" \
+    --bbox_expand_factor "${BBOX_EXPAND_FACTOR:-1.1}" \
+    --min_crop_area_ratio "${MIN_CROP_AREA_RATIO:-0.01}" \
+    --max_crop_area_ratio "${MAX_CROP_AREA_RATIO:-0.35}" \
     --min_edit_mass_ratio "${MIN_EDIT_MASS_RATIO:-0.002}" \
     --min_component_pixels "${MIN_COMPONENT_PIXELS:-16}"
 
@@ -70,5 +72,6 @@ echo ""
 echo "Done. Open panels:"
 find "${OUTPUT_DIR}" -name 'crop_panel.png' | sort | head -20
 echo ""
-echo "Tip: step2_edit_mass_heatmap.png shows edit region (low α → warm colors)"
+echo "Tip: step2_hot_mask.png = binary red-core mask used for the new tight crop"
+echo "     step2_edit_mass_heatmap.png = continuous edit mass"
 echo "     crop_boxes_overlay.png: green=global, blue=random local, red=mask local"

@@ -5,7 +5,7 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # Fake: 2-NFE rollout -> step2 alpha + endpoint latent -> VAE decode.
 # Crops (shared real/fake): full global, random local, alpha-mask local (low alpha = edit).
 # Case A reals: dataset-sampled unpaired edited images (load_unpaired_edited=True).
-# GAN grads: gan_grad_step2_only=True by default.
+# GAN grads: through both NFE steps (gan_grad_step2_only=False).
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
@@ -120,10 +120,12 @@ model = dict(
         mass_threshold_percentile=30.0,
         mass_coverage_min=0.85,
         mass_coverage_max=0.90,
-        union_area_max_ratio=0.55,
-        bbox_expand_factor=1.4,
-        min_crop_area_ratio=0.05,
-        max_crop_area_ratio=0.55,
+        # Tight crop on edit-mass heatmap hot core (red region, ~t>=0.4).
+        hot_mass_frac=0.40,
+        union_area_max_ratio=0.35,
+        bbox_expand_factor=1.1,
+        min_crop_area_ratio=0.01,
+        max_crop_area_ratio=0.35,
         min_edit_mass_ratio=0.002,
         min_component_pixels=16,
         gan_global_weight=1.0,
@@ -143,9 +145,10 @@ train_cfg = dict(
     split_stage_gan_warmup_iters=0,
     split_stage_gan_ramp_iters=0,
     split_stage_gan_loss_weight=0.05,
-    # Anchor pred_delta ~ x0_tgt - alpha*x_ref (same role as split-stage direct flow).
-    direct_delta_loss_weight=0.5,
-    gan_grad_step2_only=True,
+    # Direct-delta anchor off; let GAN + PIID drive the student.
+    direct_delta_loss_weight=0.0,
+    # GAN grads flow through both NFE steps (do not detach step-1).
+    gan_grad_step2_only=False,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,

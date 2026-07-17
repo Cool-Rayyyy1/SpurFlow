@@ -248,6 +248,42 @@ def _pad_to_height(image: Image.Image, height: int) -> Image.Image:
     return canvas
 
 
+def render_hot_mask_overlay(
+        src_pil: Image.Image,
+        alpha_latent: torch.Tensor,
+        *,
+        edit_is_low_alpha: bool = True,
+        mass_threshold_percentile: float = 30.0,
+        hot_mass_frac: float = 0.40,
+        blend: float = 0.55,
+        step_label: str = 'step2',
+) -> Image.Image:
+    """Binary hot-core mask (edit_mass >= hot_mass_frac * max) over source."""
+    src = np.array(src_pil.convert('RGB'), dtype=np.float32)
+    img_h, img_w = src.shape[:2]
+    alpha_img = upsample_alpha_to_image(
+        alpha_latent, img_h, img_w, smooth=True, smooth_sigma=2.0)
+    edit_mass = compute_edit_mass_map(
+        alpha_img[0] if alpha_img.dim() == 3 else alpha_img,
+        edit_is_low_alpha=edit_is_low_alpha,
+        mass_threshold_percentile=mass_threshold_percentile,
+    )
+    vmax = float(edit_mass.max()) if edit_mass.size else 0.0
+    thr = max(vmax * float(hot_mass_frac), 1e-8)
+    binary = edit_mass >= thr
+    overlay = src.copy()
+    overlay[binary] = overlay[binary] * (1.0 - blend) + np.array([255.0, 60.0, 60.0]) * blend
+    body = Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8), mode='RGB')
+    body = _patch_grid_overlay(body)
+    frac = 100.0 * float(binary.mean()) if binary.size else 0.0
+    return _compose_with_header(
+        body,
+        title=f'Hot-core mask  ·  {step_label}',
+        subtitle=f'edit_mass ≥ {hot_mass_frac:.2f}·max  ·  active≈{frac:.1f}% pixels',
+        colorbar_range=(0.0, vmax),
+    )
+
+
 def build_crop_specs_for_alpha(
         alpha_latent: torch.Tensor,
         image_height: int,
@@ -259,12 +295,13 @@ def build_crop_specs_for_alpha(
         mass_threshold_percentile: float = 30.0,
         mass_coverage_min: float = 0.85,
         mass_coverage_max: float = 0.90,
-        union_area_max_ratio: float = 0.55,
-        bbox_expand_factor: float = 1.4,
-        min_crop_area_ratio: float = 0.05,
-        max_crop_area_ratio: float = 0.55,
+        union_area_max_ratio: float = 0.35,
+        bbox_expand_factor: float = 1.1,
+        min_crop_area_ratio: float = 0.01,
+        max_crop_area_ratio: float = 0.35,
         min_edit_mass_ratio: float = 0.002,
         min_component_pixels: int = 16,
+        hot_mass_frac: float = 0.40,
         seed: int = 0) -> Tuple[List[torch.Tensor], Dict[str, torch.Tensor]]:
     device = alpha_latent.device
     rng = torch.Generator(device=device)
@@ -287,5 +324,6 @@ def build_crop_specs_for_alpha(
         max_crop_area_ratio=max_crop_area_ratio,
         min_edit_mass_ratio=min_edit_mass_ratio,
         min_component_pixels=min_component_pixels,
+        hot_mass_frac=hot_mass_frac,
         rng=rng,
     )
