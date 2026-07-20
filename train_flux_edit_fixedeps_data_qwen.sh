@@ -48,7 +48,7 @@ DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
 QWEN_MODEL="${QWEN_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511}"
 GPU_IDS="${GPU_IDS:-0,1}"
 RUN_ID="${RUN_ID:-}"
-RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
+RESUME_RUN_DIR="${RESUME_RUN_DIR:-20260717_141803}"
 FRESH="${FRESH:-0}"
 # --------------------------------
 

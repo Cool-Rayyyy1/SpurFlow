@@ -13,13 +13,18 @@ import torch
 import torch.nn as nn
 import torch.distributed as dist
 import mmcv
-from typing import Union, Callable, Optional, List, Sequence
+from contextlib import nullcontext
+from typing import Union, Callable, Optional, List, Sequence, Tuple
 from collections import OrderedDict
 from tempfile import TemporaryDirectory
 from torch.optim import Optimizer
 from torch.distributed.tensor import DTensor
 from torch.distributed.checkpoint.state_dict import set_model_state_dict, StateDictOptions, get_optimizer_state_dict
 from torch.distributed.fsdp import StateDictType, FullStateDictConfig, FullyShardedDataParallel as FSDP
+try:
+    from torch.distributed.fsdp import FSDPModule
+except ImportError:  # pragma: no cover
+    FSDPModule = None
 from safetensors.torch import load_file, load
 from diffusers.utils.hub_utils import _get_checkpoint_shard_files
 from mmcv.runner import CheckpointLoader, get_dist_info, _load_checkpoint
@@ -618,6 +623,94 @@ def get_optim_state_dict(model, optimizer, bf16=False):
     return optim_state_dict
 
 
+def _is_fsdp_module(module: nn.Module) -> bool:
+    if isinstance(module, FSDP):
+        return True
+    return FSDPModule is not None and isinstance(module, FSDPModule)
+
+
+def _unwrap_non_fsdp_module(module: nn.Module) -> nn.Module:
+    """Strip DDP-style wrappers while keeping FSDP roots intact."""
+    while is_module_wrapper(module) and not _is_fsdp_module(module):
+        module = module.module
+    return module
+
+
+def _iter_ema_module_pairs(model: nn.Module) -> List[Tuple[str, str, nn.Module]]:
+    """Yield ``(online_name, ema_name, ema_module)`` for top-level EMA children."""
+    pairs = []
+    for name, module in model.named_children():
+        if name.endswith('_ema'):
+            pairs.append((name[:-4], name, module))
+        elif name.endswith('_ema2'):
+            pairs.append((name[:-5], name, module))
+    return pairs
+
+
+def append_ema_mirrors_to_state_dict(
+        model: nn.Module,
+        state_dict: Union[dict, OrderedDict],
+        cpu_offload: bool = True) -> Union[dict, OrderedDict]:
+    """Copy EMA tensors that mirror already-saved online trainable keys.
+
+    ``ckpt_trainable_only=True`` skips ``requires_grad=False`` params, and EMA
+    weights are always non-trainable clones, so they never land in the
+    checkpoint. Sampling / resume both rely on ``diffusion_ema``; without these
+    mirrors, resume promotes noisy online weights into EMA and sample quality
+    drops sharply.
+
+    Only keys already present under the online module (e.g. LoRA / proj heads)
+    are mirrored, so frozen backbones tied into EMA are not materialized.
+    """
+    if is_module_wrapper(model) and not _is_fsdp_module(model):
+        model = model.module
+    if isinstance(model, FSDP2Wrapper):
+        model = model.module
+
+    ema_pairs = _iter_ema_module_pairs(model)
+    if not ema_pairs:
+        return state_dict
+
+    rank, world_size = get_dist_info()
+    for online_name, ema_name, ema_mod in ema_pairs:
+        online_prefix = f'{online_name}.'
+        suffixes = [
+            key[len(online_prefix):]
+            for key in state_dict
+            if key.startswith(online_prefix)
+        ]
+        if not suffixes:
+            continue
+
+        ema_mod = _unwrap_non_fsdp_module(ema_mod)
+        if isinstance(ema_mod, FSDP):
+            # All ranks must enter the collective; mirrors are only kept on rank0.
+            ema_ctx = FSDP.summon_full_params(
+                ema_mod, writeback=False, rank0_only=False)
+        else:
+            ema_ctx = nullcontext()
+
+        with ema_ctx:
+            if rank != 0 and world_size > 1:
+                continue
+            ema_params = dict(ema_mod.named_parameters())
+            ema_buffers = dict(ema_mod.named_buffers())
+            for suffix in suffixes:
+                tensor = ema_params.get(suffix)
+                if tensor is None:
+                    tensor = ema_buffers.get(suffix)
+                if tensor is None:
+                    continue
+                tensor = tensor.detach()
+                if isinstance(tensor, DTensor):
+                    tensor = tensor.full_tensor()
+                if cpu_offload:
+                    tensor = tensor.cpu()
+                state_dict[f'{ema_name}.{suffix}'] = tensor
+
+    return state_dict
+
+
 def write_checkpoint_to_file(checkpoint, filepath, create_symlink=False, after_save_hook=None):
     if filepath.startswith('pavi://'):
         try:
@@ -694,9 +787,16 @@ def get_checkpoint(model,
         # save class name to the meta
         meta.update(CLASSES=model.CLASSES)
 
+    state_dict = get_state_dict(
+        model, trainable_only=trainable_only, cpu_offload=True)
+    if trainable_only:
+        # EMA params are requires_grad=False clones and would otherwise be
+        # dropped; mirror the saved online trainable keys into *_ema*.
+        append_ema_mirrors_to_state_dict(
+            model, state_dict, cpu_offload=True)
     checkpoint = {
         'meta': meta,
-        'state_dict': get_state_dict(model, trainable_only=trainable_only, cpu_offload=True)}
+        'state_dict': state_dict}
     if fp16 or fp16_ema:
         for k, v in checkpoint['state_dict'].items():
             if ((fp16 and '_ema.' not in k and '_ema2.' not in k) or (fp16_ema and ('_ema.' in k or '_ema2.' in k))) \

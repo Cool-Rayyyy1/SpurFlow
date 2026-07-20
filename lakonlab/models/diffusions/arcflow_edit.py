@@ -804,6 +804,297 @@ class ArcFlowEditImitationSplitStageDualLoraGAN(ArcFlowEditImitationSplitStageGA
 
 
 @MODULES.register_module()
+class ArcFlowEditImitationSplitStageDualLoraTeacherX0(ArcFlowEditImitationSplitStage):
+    """Split-stage dual-LoRA: step-1 velocity PIID, step-2 same PIID with x0 targets.
+
+    Step-1 (``step1`` LoRA): unchanged split-stage PIID from sampled ``path_epsilon``.
+    Step-2 (``step2`` LoRA): identical to ``piid_segment_momentum`` (same sampling /
+    ``policy_average_u_momentum``), only the matched quantities are x0:
+      teacher_x0 = path_epsilon - teacher_u,
+      student_x0 = path_epsilon - pred_u  (= x_ref + pred_delta),
+      loss = MSE(student_x0, teacher_x0).
+    ``x_t`` is detached into step-2 so step-2 grads stay on step-2 LoRA/heads.
+
+    Validation: step-1 integrates to an intermediate ``x_t``; step-2 returns
+    ``x_ref + pred_delta`` directly (no final velocity integration).
+    """
+
+    LORA_STAGE_STEP1 = 'step1'
+    LORA_STAGE_STEP2 = 'step2'
+
+    def pred(self, x_t=None, t=None, **kwargs):
+        lora_stage = kwargs.pop('lora_stage', None)
+        denoising = self.denoising
+        if lora_stage is not None and getattr(denoising, 'dual_stage_lora', False):
+            denoising.set_lora_stage(lora_stage)
+        return super().pred(x_t, t, **kwargs)
+
+    def piid_segment_momentum_x0(
+            self, teacher, policy, x_t_src, raw_t_src, sigma_t_src, teacher_ratio,
+            segment_size, teacher_kwargs):
+        """Same as ``piid_segment_momentum``, but match x0 instead of velocity.
+
+        Student side is identical (``policy_average_u_momentum``). Only the
+        matched quantities change:
+          pred_u / teacher_u  →  student_x0 / teacher_x0
+          teacher_x0 = path_epsilon - teacher_u
+          student_x0 = path_epsilon - pred_u
+                     (= x_ref + pred_delta under residual parameterization)
+        """
+        eps = self.train_cfg.get('eps', 1e-4)
+        total_substeps = self.train_cfg.get('total_substeps', 128)
+        num_intermediate_states = self.train_cfg.get('num_intermediate_states', 2)
+        window_substeps = self.train_cfg.get('window_substeps', 0)
+
+        path_epsilon = policy.path_epsilon
+        if path_epsilon is None:
+            raise ValueError(
+                'piid_segment_momentum_x0 requires policy.path_epsilon.')
+
+        device = x_t_src.device
+        ndim, bs, seq_len = self.get_shape_info(x_t_src)
+        if not isinstance(segment_size, torch.Tensor):
+            segment_size = torch.tensor(
+                [segment_size], dtype=torch.float32, device=device)
+
+        # window size ∆τ ≈ window_substeps / total_substeps
+        num_substeps = (segment_size * total_substeps).round().to(torch.long).clamp(min=1)
+        substep_size = segment_size / num_substeps
+        window_size = torch.minimum(window_substeps * substep_size, segment_size)
+
+        policy_detached = policy.detach()
+        if hasattr(policy_detached, 'dropout_'):
+            gm_dropout = self.train_cfg.get('gm_dropout', 0.0)
+            policy_detached.dropout_(gm_dropout)
+
+        # time sampling for scheduled trajectory mixing
+        assert not self.timestep_sampler.logit_normal_enable
+        student_intervals = torch.rand(
+            (bs, num_intermediate_states), device=device
+        ) * ((1 - teacher_ratio) * (segment_size - window_size).unsqueeze(-1))
+        student_intervals = torch.sort(student_intervals, dim=-1)[0]
+        student_intervals = torch.diff(
+            student_intervals, dim=-1, prepend=torch.zeros((bs, 1), device=device))
+
+        teacher_intervals = torch.rand((bs, num_intermediate_states - 1), device=device)
+        teacher_intervals = torch.sort(teacher_intervals, dim=-1)[0]
+        teacher_intervals = torch.diff(
+            teacher_intervals, dim=-1,
+            prepend=torch.zeros((bs, 1), device=device),
+            append=torch.ones((bs, 1), device=device)
+        ) * (teacher_ratio * (segment_size - window_size).unsqueeze(-1))
+
+        x_t = x_t_src
+        raw_t = raw_t_src
+        sigma_t = sigma_t_src
+
+        all_pred_x0 = []
+        all_tgt_x0 = []
+        all_timesteps = []
+
+        for teacher_step_id in range(num_intermediate_states):
+            raw_t_a = (raw_t - student_intervals[:, teacher_step_id]).clamp(min=0)
+            raw_t_b = (raw_t_a - teacher_intervals[:, teacher_step_id]).clamp(min=0)
+
+            with torch.no_grad(), module_eval(teacher):
+                x_t_a, sigma_t_a, t_a = self.momentum_integration(
+                    sigma_t_src, x_t, sigma_t, raw_t_a,
+                    policy_detached, eps=eps, seq_len=seq_len)
+                teacher_u = teacher(
+                    return_u=True, x_t=x_t_a, t=t_a, **teacher_kwargs)
+                # Only difference vs velocity-PIID: match x0 = path_ε - u.
+                teacher_x0 = (path_epsilon - teacher_u).float()
+                all_tgt_x0.append(teacher_x0)
+                all_timesteps.append(t_a)
+
+            pred_u = self.policy_average_u_momentum(
+                sigma_t_src,
+                x_t_a, sigma_t_a, raw_t_a, raw_t_b - window_size, total_substeps,
+                policy, seq_len=seq_len, eps=eps)
+            # Same student u as velocity-PIID; convert to x0 for the loss.
+            student_x0 = path_epsilon - pred_u
+            all_pred_x0.append(student_x0)
+
+            sigma_t_b = self.timestep_sampler.warp_t(
+                raw_t_b, seq_len=seq_len).reshape(bs, *((ndim - 1) * [1]))
+            x_t = x_t_a + teacher_u * (sigma_t_b - sigma_t_a)
+            raw_t = raw_t_b
+            sigma_t = sigma_t_b
+
+        return self.flow_loss(dict(
+            u_t_pred=torch.cat(all_pred_x0, dim=0),
+            u_t=torch.cat(all_tgt_x0, dim=0),
+            timesteps=torch.cat(all_timesteps, dim=0),
+        ))
+
+    def forward_train(self, x_0, teacher=None, teacher_kwargs=dict(), running_status=None, **kwargs):
+        x_ref = kwargs.pop('x_ref', None)
+        if x_ref is None:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraTeacherX0 requires `x_ref` '
+                '(source/reference latents) in kwargs.')
+        if teacher is None:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraTeacherX0 requires `teacher`.')
+
+        device = get_module_device(self)
+        num_batches = x_0.size(0)
+        seq_len = x_0.shape[2:].numel()
+        ndim = x_0.dim()
+        assert ndim in [4, 5], f'Invalid x_0 shape: {x_0.shape}. Expected 4D or 5D tensor.'
+
+        num_decay_iters = self.train_cfg.get('num_decay_iters', 0)
+        if num_decay_iters > 0:
+            teacher_ratio = 1 - min(running_status['iteration'], num_decay_iters) / num_decay_iters
+            log_vars = dict(teacher_ratio=teacher_ratio)
+        else:
+            teacher_ratio = 0.0
+            log_vars = dict()
+
+        base_segment_size, final_step_size = self._rollout_segment_sizes()
+        policy_eps = self.train_cfg.get('eps', 1e-4)
+        w_step2 = self.train_cfg.get('split_stage_step2_x0_loss_weight', 1.0)
+        step2_warmup_scale = self._step2_warmup_scale(running_status)
+        log_vars['step2_warmup_scale'] = step2_warmup_scale
+
+        path_epsilon = torch.randn_like(x_0)
+
+        # ----- step-1: velocity PIID from sampled noise (step1 LoRA) -----
+        raw_t_step1 = torch.ones(num_batches, dtype=torch.float32, device=device)
+        sigma_t_step1 = self.timestep_sampler.warp_t(raw_t_step1, seq_len=seq_len).reshape(
+            num_batches, *((ndim - 1) * [1]))
+        t_step1 = sigma_t_step1.flatten() * self.num_timesteps
+        x_t_step1 = path_epsilon
+
+        denoising_output_step1 = self.pred(
+            x_t_step1, t_step1, lora_stage=self.LORA_STAGE_STEP1, **kwargs)
+        policy_step1 = self.policy_class(
+            denoising_output_step1, x_t_step1, sigma_t_step1, x_ref=x_ref,
+            path_epsilon=path_epsilon, eps=policy_eps)
+
+        loss_step1, _, _ = self.piid_segment_momentum(
+            teacher, policy_step1, x_t_step1, raw_t_step1, sigma_t_step1,
+            teacher_ratio, base_segment_size, teacher_kwargs)
+
+        loss = loss_step1
+        loss_step2_x0 = None
+
+        if step2_warmup_scale > 0 and w_step2 > 0:
+            raw_t_step2 = raw_t_step1 - base_segment_size
+            x_t_step2, sigma_t_step2, t_step2 = self.momentum_integration(
+                sigma_t_step1, x_t_step1, sigma_t_step1, raw_t_step2,
+                policy_step1, eps=policy_eps, seq_len=seq_len)
+            # Detach so step-2 PIID-x0 only updates step-2 LoRA / heads.
+            x_t_step2 = x_t_step2.detach()
+            sigma_t_step2 = sigma_t_step2.detach()
+            t_step2 = t_step2.detach()
+
+            denoising_output_step2 = self.pred(
+                x_t_step2, t_step2, lora_stage=self.LORA_STAGE_STEP2, **kwargs)
+            policy_step2 = self.policy_class(
+                denoising_output_step2, x_t_step2, sigma_t_step2, x_ref=x_ref,
+                path_epsilon=path_epsilon, eps=policy_eps)
+
+            # Step-2: PIID over the final segment, matching x0 (not velocity).
+            loss_step2_x0 = self.piid_segment_momentum_x0(
+                teacher, policy_step2, x_t_step2, raw_t_step2, sigma_t_step2,
+                teacher_ratio, final_step_size, teacher_kwargs)
+            loss = loss + step2_warmup_scale * w_step2 * loss_step2_x0
+
+        log_vars.update(self.flow_loss.log_vars)
+        log_vars.update(
+            loss=float(loss.detach()),
+            loss_step1=float(loss_step1.detach()),
+        )
+        if loss_step2_x0 is not None:
+            log_vars['loss_step2_teacher_x0'] = float(loss_step2_x0.detach())
+        return loss, log_vars
+
+    def forward_test(
+            self, x_0=None, noise=None, guidance_scale=None,
+            test_cfg_override=dict(), show_pbar=False, **kwargs):
+        """Step-1 integrates to ``x_t``; step-2 returns ``x_ref + pred_delta``."""
+        x_ref = kwargs.get('image_latents')
+        if x_ref is None:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraTeacherX0 inference requires '
+                '`image_latents` (source latents).')
+
+        import sys
+        import mmcv
+
+        x_t_src = torch.randn_like(x_0) if noise is None else noise
+        path_epsilon = x_t_src.clone()
+        num_batches = x_t_src.size(0)
+        seq_len = x_t_src.shape[2:].numel()
+        ori_dtype = x_t_src.dtype
+        device = x_t_src.device
+        x_t_src = x_t_src.float()
+        path_epsilon = path_epsilon.float()
+        x_ref = x_ref.float()
+        ndim = x_t_src.dim()
+        assert ndim in [4, 5], f'Invalid x_t_src shape: {x_t_src.shape}. Expected 4D or 5D tensor.'
+
+        cfg = deepcopy(self.test_cfg)
+        cfg.update(test_cfg_override)
+
+        eps = cfg.get('eps', 1e-4)
+        nfe = cfg['nfe']
+        if nfe != 2:
+            raise ValueError(
+                'ArcFlowEditImitationSplitStageDualLoraTeacherX0 expects nfe=2 at '
+                f'inference, got nfe={nfe}.')
+        base_segment_size, final_step_size = self._rollout_segment_sizes()
+
+        raw_t_src = torch.ones((num_batches,), dtype=torch.float32, device=device)
+        sigma_t_src = self.timestep_sampler.warp_t(raw_t_src, seq_len=seq_len).reshape(
+            num_batches, *((ndim - 1) * [1]))
+        t_src = sigma_t_src.flatten() * self.num_timesteps
+
+        if show_pbar:
+            pbar = mmcv.ProgressBar(nfe)
+
+        for step_id in range(nfe):
+            is_final_step = step_id == nfe - 1
+            segment_size = base_segment_size if not is_final_step else final_step_size
+            raw_t_dst = raw_t_src - segment_size
+
+            lora_stage = (
+                self.LORA_STAGE_STEP1 if not is_final_step else self.LORA_STAGE_STEP2)
+            denoising_output = self.pred(
+                x_t_src, t_src, lora_stage=lora_stage, **kwargs)
+            policy = self.policy_class(
+                denoising_output, x_t_src, sigma_t_src, x_ref=x_ref,
+                path_epsilon=path_epsilon, eps=eps)
+
+            if is_final_step:
+                pred_delta = policy.compute_pred_delta(sigma_t_src, sigma_t_src)
+                x_t_src = x_ref + pred_delta
+                if show_pbar:
+                    pbar.update()
+                break
+
+            temperature = cfg.get('temperature', 1.0)
+            policy.temperature_(temperature)
+            x_t_dst, sigma_t_dst, t_dst = self.momentum_integration(
+                sigma_t_src, x_t_src, sigma_t_src, raw_t_dst,
+                policy, eps=eps, seq_len=seq_len)
+
+            x_t_src = x_t_dst
+            raw_t_src = raw_t_dst
+            sigma_t_src = sigma_t_dst
+            t_src = t_dst
+
+            if show_pbar:
+                pbar.update()
+
+        if show_pbar:
+            sys.stdout.write('\n')
+
+        return x_t_src.to(ori_dtype)
+
+
+@MODULES.register_module()
 class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
     """Standard PIID edit distillation with optional step-2 endpoint for DINOv3 GAN.
 

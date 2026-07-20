@@ -7,6 +7,7 @@ from .arcflow_edit import (
     ArcFlowEditImitationSplitStage,
     ArcFlowEditImitationSplitStageGAN,
     ArcFlowEditImitationSplitStageDualLoraGAN,
+    ArcFlowEditImitationSplitStageDualLoraTeacherX0,
     ArcFlowEditImitationStep2GAN,
 )
 from .arcflow_edit_new import ArcFlowEditNewImitation
@@ -20,6 +21,7 @@ __all__ = [
     'ArcFlowImitation', 'ArcFlowImitationDataFree', 'ArcFlowEditImitation',
     'ArcFlowEditImitationSplitStage', 'ArcFlowEditImitationSplitStageGAN',
     'ArcFlowEditImitationSplitStageDualLoraGAN',
+    'ArcFlowEditImitationSplitStageDualLoraTeacherX0',
     'ArcFlowEditImitationStep2GAN',
     'ArcFlowEditNewImitation', 'ArcFlowEditAlphaImitation',
     'ArcFlowEditAlphaLpipsImitation',
