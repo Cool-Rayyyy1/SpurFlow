@@ -36,8 +36,11 @@ if str(EDITFLOW_ROOT) not in sys.path:
 from alpha_vis import capture_student_alphas, render_alpha_grid_blank  # noqa: E402
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
 from run_editflow_imgedit_infer import (  # noqa: E402
+    basic_case_dir,
     build_klein_pipeline,
     build_teacher_pipeline,
+    case_bundle_ready,
+    category_dir_name,
     expected_outputs,
     load_tasks,
     merge_manifest_parts,
@@ -54,10 +57,12 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     split_tasks_round_robin,
     suite_complete,
     tensor_to_pil,
+    write_basic_case_bundle,
 )
 
 ALPHA_VIS_SUBDIR = "alpha_vis"
 
+# Re-exported for callers; kept here so older scripts keep working.
 BASIC_CATEGORY_DIRS = (
     "Action",
     "Add",
@@ -69,39 +74,6 @@ BASIC_CATEGORY_DIRS = (
     "Replace",
     "Style",
 )
-
-
-def category_dir_name(edit_type: Optional[str]) -> str:
-    raw = str(edit_type or "unknown").strip()
-    titled = raw[:1].upper() + raw[1:].lower() if raw else "Unknown"
-    for name in BASIC_CATEGORY_DIRS:
-        if name.lower() == titled.lower():
-            return name
-    return titled
-
-
-def basic_case_dir(output_dir: Path, item: Dict, sample_key: str) -> Path:
-    return output_dir / "basic" / category_dir_name(item.get("edit_type")) / sample_key
-
-
-def case_bundle_ready(case_dir: Path) -> bool:
-    return all(
-        (case_dir / name).is_file()
-        for name in ("src.png", "pred.png", "prompt.txt")
-    )
-
-
-def write_basic_case_bundle(
-    case_dir: Path,
-    src_image: Image.Image,
-    pred_image: Image.Image,
-    prompt: str,
-) -> None:
-    case_dir.mkdir(parents=True, exist_ok=True)
-    src_image.save(case_dir / "src.png")
-    pred_image.save(case_dir / "pred.png")
-    (case_dir / "prompt.txt").write_text(
-        (prompt or "").rstrip() + "\n", encoding="utf-8")
 
 
 def alpha_vis_paths(output_dir: Path, rel_score_path: Path, n_steps: int) -> List[Path]:

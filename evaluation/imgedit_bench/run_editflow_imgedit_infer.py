@@ -8,6 +8,7 @@ import json
 import multiprocessing as mp
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -47,6 +48,51 @@ QWEN_DEFAULT_GUIDANCE = 1.0
 QWEN_TRUE_CFG_SCALE = float(os.environ.get("QWEN_TRUE_CFG_SCALE", "4.0"))
 QWEN_NEGATIVE_PROMPT = os.environ.get("QWEN_NEGATIVE_PROMPT", " ")
 
+BASIC_CATEGORY_DIRS = (
+    "Action",
+    "Add",
+    "Adjust",
+    "Background",
+    "Compose",
+    "Extract",
+    "Remove",
+    "Replace",
+    "Style",
+)
+
+
+def category_dir_name(edit_type: Optional[str]) -> str:
+    raw = str(edit_type or "unknown").strip()
+    titled = raw[:1].upper() + raw[1:].lower() if raw else "Unknown"
+    for name in BASIC_CATEGORY_DIRS:
+        if name.lower() == titled.lower():
+            return name
+    return titled
+
+
+def basic_case_dir(output_dir: Path, item: Dict, sample_key: str) -> Path:
+    return output_dir / "basic" / category_dir_name(item.get("edit_type")) / sample_key
+
+
+def case_bundle_ready(case_dir: Path) -> bool:
+    return all(
+        (case_dir / name).is_file()
+        for name in ("src.png", "pred.png", "prompt.txt")
+    )
+
+
+def write_basic_case_bundle(
+    case_dir: Path,
+    src_image: Image.Image,
+    pred_image: Image.Image,
+    prompt: str,
+) -> None:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    src_image.save(case_dir / "src.png")
+    pred_image.save(case_dir / "pred.png")
+    (case_dir / "prompt.txt").write_text(
+        (prompt or "").rstrip() + "\n", encoding="utf-8")
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ImgEdit-Bench inference for EditFlow and baselines.")
@@ -68,6 +114,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_gpus", type=int, default=int(os.environ.get("NUM_GPUS", "2")))
     p.add_argument("--cpu_offload", action="store_true")
     p.add_argument("--skip_existing", action="store_true")
+    p.add_argument(
+        "--write_case_bundles",
+        action="store_true",
+        help=(
+            "For basic suite, also write student/basic/<Category>/<key>/"
+            "{src.png,pred.png,prompt.txt} alongside flat scoring pngs."
+        ),
+    )
     p.add_argument("--check_only", action="store_true", help="Only report suite completeness.")
     return p.parse_args()
 
@@ -512,13 +566,21 @@ def process_tasks(
     skip_existing: bool,
     device: str,
     desc: str,
+    write_case_bundles: bool = False,
 ) -> Dict[str, Dict]:
     manifest: Dict[str, Dict] = {}
     for task_key, item in tqdm(tasks, desc=desc):
         suite_name, sample_key = task_key.split(":", 1)
         rel_paths = expected_outputs(task_key, item)
         abs_paths = [output_dir / rel for rel in rel_paths]
-        if skip_existing and all(p.is_file() for p in abs_paths):
+        case_dir = (
+            basic_case_dir(output_dir, item, sample_key)
+            if write_case_bundles and suite_name == "basic"
+            else None
+        )
+        score_ready = all(p.is_file() for p in abs_paths)
+        case_ready = case_dir is None or case_bundle_ready(case_dir)
+        if skip_existing and score_ready and case_ready:
             continue
 
         src_path = resolve_source_path(bench_root, item, task_key)
@@ -550,17 +612,30 @@ def process_tasks(
             )
         else:
             abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
-            result = run_one(
-                runner,
-                role,
-                image=image,
-                prompt=item["prompt"],
-                num_inference_steps=num_steps,
-                guidance_scale=guidance_scale,
-                seed=task_seed,
-                device=device,
-            )
-            result.save(abs_paths[0])
+            # Prefer rebuilding the flat score png from an existing case bundle.
+            if (
+                not abs_paths[0].is_file()
+                and case_dir is not None
+                and case_bundle_ready(case_dir)
+            ):
+                shutil.copy2(case_dir / "pred.png", abs_paths[0])
+            if not abs_paths[0].is_file():
+                result = run_one(
+                    runner,
+                    role,
+                    image=image,
+                    prompt=item["prompt"],
+                    num_inference_steps=num_steps,
+                    guidance_scale=guidance_scale,
+                    seed=task_seed,
+                    device=device,
+                )
+                result.save(abs_paths[0])
+            else:
+                result = Image.open(abs_paths[0]).convert("RGB")
+            if case_dir is not None:
+                write_basic_case_bundle(
+                    case_dir, image, result, item.get("prompt", ""))
 
         manifest[task_key] = {
             "suite": suite_name,
@@ -569,6 +644,7 @@ def process_tasks(
             "prompt": item.get("prompt"),
             "turns": multiturn_prompts(item) if suite_name == "multiturn" else None,
             "outputs": [str(p) for p in abs_paths],
+            "case_dir": str(case_dir) if case_dir is not None else None,
             "edit_type": item.get("edit_type"),
         }
     return manifest
@@ -604,6 +680,7 @@ def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) 
         worker_cfg["skip_existing"],
         device,
         desc=f"GPU {gpu_id}",
+        write_case_bundles=worker_cfg.get("write_case_bundles", False),
     )
     part_path = Path(worker_cfg["output_dir"]) / f"manifest.gpu{gpu_id}.json"
     part_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -641,6 +718,7 @@ def run_parallel_inference(
         "seed": args.seed,
         "skip_existing": args.skip_existing,
         "cpu_offload": args.cpu_offload,
+        "write_case_bundles": bool(getattr(args, "write_case_bundles", False)),
     }
     if len(buckets) == 1:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_ids[0])
@@ -665,6 +743,7 @@ def run_parallel_inference(
             args.skip_existing,
             device,
             desc=f"ImgEdit {args.role}/{args.suite}",
+            write_case_bundles=worker_cfg["write_case_bundles"],
         )
 
     ctx = mp.get_context("spawn")

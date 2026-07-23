@@ -56,6 +56,7 @@ GEN_ONLY="${GEN_ONLY:-0}"
 SCORE_ONLY="${SCORE_ONLY:-0}"
 SKIP_STUDENT_GEN="${SKIP_STUDENT_GEN:-0}"
 BUILD_COMPARISONS="${BUILD_COMPARISONS:-1}"
+WRITE_CASE_BUNDLES="${WRITE_CASE_BUNDLES:-0}"
 CPU_OFFLOAD="${CPU_OFFLOAD:-0}"
 NUM_PROCESSES="${NUM_PROCESSES:-64}"
 FORCE_SCORE="${FORCE_SCORE:-0}"
@@ -130,6 +131,7 @@ write_run_config() {
     echo "STUDENT_OUTPUT:  ${STUDENT_OUTPUT}"
     echo "COMPARISONS:     ${COMPARISON_OUTPUT}"
     echo "BUILD_COMPARISONS:${BUILD_COMPARISONS}"
+    echo "WRITE_CASE_BUNDLES:${WRITE_CASE_BUNDLES}"
     echo "GEN_ONLY:        ${GEN_ONLY}"
     echo "SKIP_STUDENT_GEN:${SKIP_STUDENT_GEN}"
     echo "NUM_PROCESSES:   ${NUM_PROCESSES}"
@@ -164,6 +166,9 @@ run_student_generation() {
   fi
   if [[ "${CPU_OFFLOAD}" == "1" ]]; then
     cmd+=(--cpu_offload)
+  fi
+  if [[ "${WRITE_CASE_BUNDLES}" == "1" ]]; then
+    cmd+=(--write_case_bundles)
   fi
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
@@ -259,6 +264,9 @@ echo ""
 echo "Done."
 echo "  run folder:      ${RUN_OUTPUT_ROOT}"
 echo "  student outputs: ${STUDENT_OUTPUT}"
+if [[ "${WRITE_CASE_BUNDLES}" == "1" ]]; then
+  echo "  basic cases:     ${STUDENT_OUTPUT}/basic/{Action,Add,...}/<key>/{src,pred,prompt}"
+fi
 echo "  comparisons:     ${COMPARISON_OUTPUT}"
 if [[ "${GEN_ONLY}" != "1" ]]; then
   echo "  student scores:  ${STUDENT_SCORES_TXT}"
