@@ -63,6 +63,37 @@ _DUAL_STAGE_HEAD_NAMES = (
 )
 
 
+def remap_alpha_to_dual_stage_step2_only(
+        state_dict: Union[dict, OrderedDict]) -> Union[dict, OrderedDict]:
+    """Map shared ``proj_out_alpha`` into ``head_stages.step2`` only.
+
+    Used when loading alpha_data (single-stage) into dual-LoRA step2-alpha models.
+    Step-1 never receives an alpha head.
+    """
+    keys = list(state_dict.keys())
+    if any('.head_stages.step2.proj_out_alpha.' in k for k in keys):
+        return state_dict
+    needle = '.denoising.proj_out_alpha.'
+    if not any(needle in k for k in keys):
+        return state_dict
+
+    metadata = getattr(state_dict, '_metadata', None)
+    new_sd = OrderedDict(state_dict)
+    keys_to_drop = []
+    for key, value in state_dict.items():
+        if needle not in key:
+            continue
+        keys_to_drop.append(key)
+        new_key = key.replace(
+            needle, '.denoising.head_stages.step2.proj_out_alpha.')
+        new_sd[new_key] = value
+    for key in keys_to_drop:
+        new_sd.pop(key, None)
+    if metadata is not None:
+        new_sd._metadata = metadata  # type: ignore
+    return new_sd
+
+
 def remap_single_heads_to_dual_stage_state_dict(
         state_dict: Union[dict, OrderedDict],
         target_stages: tuple = ('step1', 'step2')) -> Union[dict, OrderedDict]:
@@ -506,6 +537,7 @@ def load_checkpoint(model: torch.nn.Module,
     if dual_stage_remap:
         state_dict = remap_single_lora_to_dual_stage_state_dict(state_dict)
         state_dict = remap_single_heads_to_dual_stage_state_dict(state_dict)
+        state_dict = remap_alpha_to_dual_stage_step2_only(state_dict)
         if logger is not None and any(
                 f'.lora_A.{stage}.' in k or f'.head_stages.{stage}.' in k
                 for k in state_dict for stage in ('step1', 'step2')):
@@ -661,6 +693,12 @@ def append_ema_mirrors_to_state_dict(
 
     Only keys already present under the online module (e.g. LoRA / proj heads)
     are mirrored, so frozen backbones tied into EMA are not materialized.
+
+    FSDP note: ``get_state_dict`` uses ``rank0_only=True``, so non-rank0 ranks
+    often have an empty ``state_dict``. Every rank must still enter the same
+    ``summon_full_params`` collective; only rank0 writes EMA tensors. Also do
+    not ``continue`` out of the summon context on non-rank0 — that exits the
+    collective early and deadlocks NCCL (seen as ALLGATHER timeout on ckpt).
     """
     if is_module_wrapper(model) and not _is_fsdp_module(model):
         model = model.module
@@ -679,34 +717,49 @@ def append_ema_mirrors_to_state_dict(
             for key in state_dict
             if key.startswith(online_prefix)
         ]
-        if not suffixes:
+        ema_mod = _unwrap_non_fsdp_module(ema_mod)
+        is_fsdp1 = isinstance(ema_mod, FSDP)
+
+        # Rank0 alone may own the online keys under FSDP full-state gather.
+        # Broadcast whether this EMA pair needs mirroring so all ranks agree
+        # before entering any collective.
+        should_mirror = len(suffixes) > 0
+        if world_size > 1 and dist.is_initialized() and is_fsdp1:
+            device = torch.device(
+                'cuda', torch.cuda.current_device()
+            ) if torch.cuda.is_available() else torch.device('cpu')
+            flag = torch.tensor(
+                [1 if (rank == 0 and should_mirror) else 0],
+                dtype=torch.int32,
+                device=device)
+            dist.broadcast(flag, src=0)
+            should_mirror = bool(flag.item())
+        if not should_mirror:
             continue
 
-        ema_mod = _unwrap_non_fsdp_module(ema_mod)
-        if isinstance(ema_mod, FSDP):
-            # All ranks must enter the collective; mirrors are only kept on rank0.
+        if is_fsdp1:
             ema_ctx = FSDP.summon_full_params(
                 ema_mod, writeback=False, rank0_only=False)
         else:
             ema_ctx = nullcontext()
 
         with ema_ctx:
-            if rank != 0 and world_size > 1:
-                continue
-            ema_params = dict(ema_mod.named_parameters())
-            ema_buffers = dict(ema_mod.named_buffers())
-            for suffix in suffixes:
-                tensor = ema_params.get(suffix)
-                if tensor is None:
-                    tensor = ema_buffers.get(suffix)
-                if tensor is None:
-                    continue
-                tensor = tensor.detach()
-                if isinstance(tensor, DTensor):
-                    tensor = tensor.full_tensor()
-                if cpu_offload:
-                    tensor = tensor.cpu()
-                state_dict[f'{ema_name}.{suffix}'] = tensor
+            # All ranks must stay inside this context until the end.
+            if rank == 0:
+                ema_params = dict(ema_mod.named_parameters())
+                ema_buffers = dict(ema_mod.named_buffers())
+                for suffix in suffixes:
+                    tensor = ema_params.get(suffix)
+                    if tensor is None:
+                        tensor = ema_buffers.get(suffix)
+                    if tensor is None:
+                        continue
+                    tensor = tensor.detach()
+                    if isinstance(tensor, DTensor):
+                        tensor = tensor.full_tensor()
+                    if cpu_offload:
+                        tensor = tensor.cpu()
+                    state_dict[f'{ema_name}.{suffix}'] = tensor
 
     return state_dict
 

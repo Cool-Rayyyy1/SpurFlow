@@ -54,3 +54,9 @@ class ArcFlowEditNewAlphaPolicy(ArcFlowEditNewPolicy):
         new_policy.sigma_t_src = self.sigma_t_src
         new_policy.denoising_output_x_0 = self.denoising_output_x_0.copy()
         return new_policy
+
+    def detach_(self):
+        super().detach_()
+        if self.alpha is not None:
+            self.alpha = self.alpha.detach()
+        return self

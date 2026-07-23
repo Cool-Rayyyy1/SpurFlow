@@ -17,12 +17,20 @@ from mmgen.utils import get_root_logger
 
 from lakonlab.runner.checkpoint import _load_checkpoint, load_full_state_dict
 from ..utils import flex_freeze
-from .arc_output import ArcFlowEditNewModelOutput, ArcFlowEditNewEpsModelOutput
+from .arc_output import (
+    ArcFlowEditNewAlphaModelOutput,
+    ArcFlowEditNewModelOutput,
+    ArcFlowEditNewEpsModelOutput,
+)
 from .arcflux import _ArcFluxTransformer2DModel
 
 
 class EditOutputHeadBundle(nn.Module):
-    """Per-stage output heads used by dual-stage LoRA students."""
+    """Per-stage output heads used by dual-stage LoRA students.
+
+    Optional ``with_alpha`` adds a 4-channel sigmoid alpha head (same as
+    ``ArcFluxEditNewAlphaTransformer2DModel``), typically only on step-2.
+    """
 
     def __init__(
             self,
@@ -31,7 +39,8 @@ class EditOutputHeadBundle(nn.Module):
             num_gammas,
             out_channels,
             logweights_channels,
-            ada_norm_cls):
+            ada_norm_cls,
+            with_alpha=False):
         super().__init__()
         self.norm_out = ada_norm_cls(
             inner_dim, inner_dim, elementwise_affine=False, eps=1e-6)
@@ -41,6 +50,9 @@ class EditOutputHeadBundle(nn.Module):
             inner_dim, num_gaussians * logweights_channels)
         self.proj_out_loggamma = nn.Linear(
             inner_dim, num_gammas * logweights_channels)
+        self.with_alpha = bool(with_alpha)
+        if self.with_alpha:
+            self.proj_out_alpha = nn.Linear(inner_dim, logweights_channels)
 
 
 class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
@@ -103,10 +115,14 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
         ])
 
         self.dual_stage_heads = kwargs.pop('dual_stage_heads', False)
+        # When True, only step-2 head bundle gets proj_out_alpha (sigmoid, ~0.5 init).
+        self.step2_alpha = bool(kwargs.pop('step2_alpha', False))
         if self.dual_stage_heads:
             self.head_stages = nn.ModuleDict({
-                self.LORA_STAGE_STEP1: self._make_head_bundle(AdaLayerNormContinuous),
-                self.LORA_STAGE_STEP2: self._make_head_bundle(AdaLayerNormContinuous),
+                self.LORA_STAGE_STEP1: self._make_head_bundle(
+                    AdaLayerNormContinuous, with_alpha=False),
+                self.LORA_STAGE_STEP2: self._make_head_bundle(
+                    AdaLayerNormContinuous, with_alpha=self.step2_alpha),
             })
             self._active_head_stage = self.LORA_STAGE_STEP1
         else:
@@ -121,7 +137,7 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
     LORA_STAGE_STEP1 = 'step1'
     LORA_STAGE_STEP2 = 'step2'
 
-    def _make_head_bundle(self, ada_norm_cls):
+    def _make_head_bundle(self, ada_norm_cls, with_alpha=False):
         return EditOutputHeadBundle(
             self.inner_dim,
             self.num_gaussians,
@@ -129,6 +145,7 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
             self.out_channels,
             self.logweights_channels,
             ada_norm_cls,
+            with_alpha=with_alpha,
         )
 
     def _install_shared_heads(self, ada_norm_cls):
@@ -203,11 +220,17 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
             target_log_gammas = target_log_gammas.unsqueeze(1).repeat(
                 1, self.logweights_channels).flatten()
         bundle.proj_out_loggamma.bias.data.copy_(target_log_gammas)
+        if getattr(bundle, 'with_alpha', False) and hasattr(bundle, 'proj_out_alpha'):
+            # Match alpha_data: zero-logit init -> sigmoid(alpha) ≈ 0.5
+            constant_init(bundle.proj_out_alpha.to_empty(device='cpu'), val=0)
 
     def _copy_head_bundle(self, src_stage: str, dst_stage: str) -> None:
         src = self.head_stages[src_stage]
         dst = self.head_stages[dst_stage]
-        dst.load_state_dict(src.state_dict(), assign=True)
+        # strict=False: step2 may have proj_out_alpha that step1 lacks.
+        dst.load_state_dict(src.state_dict(), assign=True, strict=False)
+        if getattr(dst, 'with_alpha', False) and hasattr(dst, 'proj_out_alpha'):
+            constant_init(dst.proj_out_alpha.to_empty(device='cpu'), val=0)
 
     def _init_proj_out_deltax(self):
         if getattr(self, 'dual_stage_heads', False):
@@ -367,6 +390,12 @@ class _ArcFluxEditNewTransformer2DModel(_ArcFluxTransformer2DModel):
                 bs, seq_len, self.out_channels)
             output_kwargs['epsilon'] = out_epsilon
             return ArcFlowEditNewEpsModelOutput(**output_kwargs)
+        if getattr(heads, 'with_alpha', False) and hasattr(heads, 'proj_out_alpha'):
+            out_alpha = torch.sigmoid(
+                heads.proj_out_alpha(hidden_states).reshape(
+                    bs, seq_len, 1, self.logweights_channels))
+            output_kwargs['alpha'] = out_alpha
+            return ArcFlowEditNewAlphaModelOutput(**output_kwargs)
         return ArcFlowEditNewModelOutput(**output_kwargs)
 
 
@@ -431,6 +460,7 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
             checkpointing=True,
             use_lora=False,
             dual_stage_lora=False,
+            step2_alpha=False,
             lora_target_modules=None,
             lora_rank=16,
             lora_dropout=0.0,
@@ -442,11 +472,13 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         self.deltax_init = deltax_init
         self.predict_path_epsilon = predict_path_epsilon
         self.dual_stage_lora = bool(dual_stage_lora)
+        self.step2_alpha = bool(step2_alpha)
         with init_empty_weights():
             super().__init__(
                 *args,
                 predict_path_epsilon=predict_path_epsilon,
                 dual_stage_heads=self.dual_stage_lora,
+                step2_alpha=self.step2_alpha,
                 **kwargs)
         self.patch_size = patch_size
         assert self.patch_size * self.patch_size == self.logweights_channels
@@ -605,6 +637,14 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
                 ).reshape(
                     bs, c_eps // (self.patch_size * self.patch_size),
                     h_eps * self.patch_size, w_eps * self.patch_size)
+            if 'alpha' in mp:
+                alpha = mp['alpha']
+                mp['alpha'] = alpha.reshape(
+                    bs, 1, 1, self.patch_size, self.patch_size, h, w
+                ).permute(
+                    0, 1, 2, 5, 3, 6, 4
+                ).reshape(
+                    bs, 1, h * self.patch_size, w * self.patch_size)
             mp['logweights'] = mp['logweights'].reshape(
                 bs, k, 1, self.patch_size, self.patch_size, h, w
             ).permute(
@@ -680,7 +720,25 @@ class ArcFluxEditNewTransformer2DModel(_ArcFluxEditNewTransformer2DModel):
         if 'epsilon' in output:
             output['epsilon'] = output['epsilon'][:, :target_seq_len].permute(0, 2, 1).reshape(
                 bs, self.out_channels, h, w)
+        if 'alpha' in output:
+            output['alpha'] = output['alpha'][:, :target_seq_len].permute(
+                0, 2, 3, 1).reshape(
+                    bs, 1, self.logweights_channels, h, w)
         return self.unpatchify(output)
+
+
+@MODULES.register_module()
+class ArcFluxEditNewDualStageStep2AlphaTransformer2DModel(ArcFluxEditNewTransformer2DModel):
+    """Dual-stage LoRA/heads with ``proj_out_alpha`` only on the step-2 head bundle.
+
+    Alpha settings match ``ArcFluxEditNewAlphaTransformer2DModel`` / alpha_data:
+    4-channel sigmoid, zero-logit init (~0.5). Step-1 has no alpha head.
+    """
+
+    def __init__(self, *args, **kwargs):
+        kwargs['dual_stage_lora'] = True
+        kwargs['step2_alpha'] = True
+        super().__init__(*args, **kwargs)
 
 
 @MODULES.register_module()

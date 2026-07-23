@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# EditFlow fixed path epsilon on Qwen-Image-Edit-2511 (3 proj heads, no epsilon head):
-#   pred_delta = mixture(deltax_k; weights, gammas) ~ x0_tgt - x_ref
-#   student_u = path_epsilon - x_ref - pred_delta
-#   teacher_u = path_epsilon - x0_tgt  =>  loss aligns pred_delta to edit residual
-#   DiT backbone from Qwen-Image-Edit; deltax_init=kaiming on proj_out_deltax (not Qwen proj_out).
-#   inherit_proj_out_deltax=False — deltax does NOT copy proj_out.
+# EditFlow fixed path epsilon + four-channel continuous alpha on Qwen-Image-Edit-2511:
+#   pred_delta = mixture(deltax_k; weights, gammas) ~ x0_tgt - alpha * x_ref
+#   alpha = sigmoid(raw head); zero-logit init; one channel per 2x2 patch position
+#   student_u = path_epsilon - alpha * x_ref - pred_delta
+#   alpha init = 0.5; multiply x_ref directly (no 1 + alpha)
+#   DiT backbone from Qwen-Image-Edit; deltax_init=kaiming; inherit_proj_out_deltax=False.
 #
-#   Sample eval: ImgEdit-Bench 9 categories x 5 (same as train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh).
+# Does NOT touch gmqwen_uedit_fixedeps_k16_* (non-alpha) runs.
 #
-#   bash train_flux_edit_fixedeps_data_qwen.sh              # default: 2 GPUs
-#   bash train_flux_edit_fixedeps_data_qwen.sh 8
-#   GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_edit_fixedeps_data_qwen.sh 8
-#   TOTAL_ITERS=80000 bash train_flux_edit_fixedeps_data_qwen.sh
+#   bash train_flux_edit_fixedeps_alpha_data_qwen.sh              # default: 2 GPUs
+#   bash train_flux_edit_fixedeps_alpha_data_qwen.sh 8
+#   GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_edit_fixedeps_alpha_data_qwen.sh 8
+#   TOTAL_ITERS=50000 bash train_flux_edit_fixedeps_alpha_data_qwen.sh
 #
 # Resume:
-#   Auto-detects the most recent run folder under checkpoints/gmqwen_uedit_fixedeps_k16_*.
-#   RESUME_RUN_DIR=<run_id> bash train_flux_edit_fixedeps_data_qwen.sh   # resume another run
-#   FRESH=1 bash train_flux_edit_fixedeps_data_qwen.sh                   # ignore checkpoints, start new run
+#   Auto-detects the most recent run under checkpoints/gmqwen_uedit_fixedeps_alpha_k16_*.
+#   RESUME_RUN_DIR=<run_id> bash train_flux_edit_fixedeps_alpha_data_qwen.sh
+#   FRESH=1 bash train_flux_edit_fixedeps_alpha_data_qwen.sh
 
 set -euo pipefail
 
@@ -38,9 +38,9 @@ fi
 
 # ---------- user knobs ----------
 NFE="${NFE:-2}"
-CKPT_INTERVAL="${CKPT_INTERVAL:-5}"
+CKPT_INTERVAL="${CKPT_INTERVAL:-10}"
 CKPT_MUST_SAVE_INTERVAL="${CKPT_MUST_SAVE_INTERVAL:-1000}"
-SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-10}"
+SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-100}"
 SAMPLES_PER_CATEGORY="${SAMPLES_PER_CATEGORY:-5}"
 TOTAL_ITERS="${TOTAL_ITERS:-50000}"
 EVAL="${EVAL:-1}"
@@ -48,11 +48,11 @@ DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
 QWEN_MODEL="${QWEN_MODEL:-/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511}"
 GPU_IDS="${GPU_IDS:-0,1}"
 RUN_ID="${RUN_ID:-}"
-RESUME_RUN_DIR="${RESUME_RUN_DIR:-20260717_141803}"
+RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 # --------------------------------
 
-RUN_NAME="gmqwen_uedit_fixedeps_k16_${NFE}nfe_pico400k"
+RUN_NAME="gmqwen_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k"
 
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 
@@ -114,9 +114,9 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow Qwen uedit fixed-eps FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  samples_per_category=${SAMPLES_PER_CATEGORY}  run=${RUN_NAME}  ckpts=checkpoints/${RUN_NAME}/  model=${QWEN_MODEL}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow Qwen uedit fixed-eps+alpha FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  samples_per_category=${SAMPLES_PER_CATEGORY}  run=${RUN_NAME}  ckpts=checkpoints/${RUN_NAME}/  model=${QWEN_MODEL}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
-    configs/qwen/editqwen_uedit_fixedeps_2nfe_k16_data.py \
+    configs/qwen/editqwen_uedit_fixedeps_2nfe_k16_alpha_data.py \
     --launcher pytorch --diff_seed \
     --cfg-options "${CFG_OPTS[@]}"

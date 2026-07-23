@@ -1,44 +1,26 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh`
-# Split-stage dual-LoRA + step-1 LPIPS/DINO:
-#   step-1 (step1 LoRA): velocity PIID
-#     + LPIPS/DINO on x0_hat = x_ref + pred_delta (step-1 only)
-#   step-2 (step2 LoRA): PIID-x0
-#     teacher_x0 = path_epsilon - teacher_u
-#     student_x0 = x_ref + pred_delta
-# Validation: ImgEdit-Bench 9x5; step-1 -> x_t; step-2 -> x_ref + delta.
+# Inference-only config for dual-LoRA teacher-x0 checkpoints.
+# Used by:
+#   evaluation/run_gmkontext_uedit_fixedeps_split_stage_dual_lora_teacher_x0_infer.sh
 #
-# During split_stage_step2_warmup_iters, step-2 is skipped (scale=0), so step2
-# LoRA/heads do not participate in loss. DDP needs unused-parameter detection.
-find_unused_parameters = True
+# Matches train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh student:
+#   ArcFlowEditImitationSplitStageDualLoraTeacherX0 + dual_stage_lora
+#   step-1: integrate to mid; step-2: x0 = x_ref + pred_delta
+# No LPIPS/DINO wrapper (train-only).
+
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
-lpips_vgg16 = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'
-dinov3_model = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/'
-    'dinov3-vitl16-pretrain-lvd1689m/model.safetensors')
 
 model = dict(
-    type='LatentDiffusionImageEditDualLoraTeacherX0Lpips',
+    type='LatentDiffusionImageEdit',
     vae=dict(
         type='PretrainedVAE',
         from_pretrained=kontext_model,
         subfolder='vae',
         freeze=True,
         torch_dtype='bfloat16'),
-    lpips=dict(
-        weights_path=lpips_weights,
-        vgg_weights_path=lpips_vgg16,
-        spatial=False),
-    dino_loss=dict(
-        checkpoint_path=dinov3_model,
-        input_size=224,
-        feature_layers=(23,),
-        backbone_dtype='bf16',
-        loss_type='cosine'),
     diffusion=dict(
         type='ArcFlowEditImitationSplitStageDualLoraTeacherX0',
         policy_type='ArcFlowEdit',
@@ -113,30 +95,14 @@ model = dict(
     tie_teacher=True,
 )
 
-save_interval = 500
-must_save_interval = 1000
-eval_interval = 500
-work_dir = f'work_dirs/{name}'
-# yapf: disable
 train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    split_stage_step2_x0_loss_weight=1.0,
-    split_stage_step2_warmup_iters=2000,
-    # Step-1 only perceptual (decoded x0_hat = x_ref + step1 pred_delta).
-    lpips_loss_weight=0.2,
-    dino_loss_weight=0.1,
-    perceptual_image_size=256,
-    num_decay_iters=2000,
-    window_substeps=3,
-    gm_dropout=0.1,
-    num_intermediate_states=4,
-    distilled_guidance_scale=3.5,
-    teacher_distilled_guidance_scale=3.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
+    distilled_guidance_scale=3.5,
 )
 test_cfg = dict(
     distilled_guidance_scale=3.5,
@@ -146,55 +112,6 @@ test_cfg = dict(
     total_substeps=128,
     latent_size=(16, 128, 128),
 )
-# yapf: enable
-
-sample_eval = dict(
-    type='EditFlowSampleImagesHook',
-    enabled=True,
-    dataset=dict(
-        type='ImgEditBenchSample',
-        annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-            'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
-        categories=[
-            'action', 'add', 'adjust', 'background', 'compose',
-            'extract', 'remove', 'replace', 'style'],
-        samples_per_category=5,
-        seed=42,
-        resize_mode='kontext',
-    ),
-    interval=save_interval,
-    must_save_interval=must_save_interval,
-    output_dir='samples',
-    max_samples=None,
-    priority='LOW',
-)
-
-data = dict(
-    workers_per_gpu=1,
-    train=dict(resize_mode='kontext'),
-    val=dict(resize_mode='kontext'),
-    train_dataloader=dict(samples_per_gpu=1),
-    val_dataloader=dict(samples_per_gpu=1),
-    test_dataloader=dict(samples_per_gpu=1),
-    persistent_workers=False,
-    prefetch_factor=2,
-)
-checkpoint_config = dict(
-    interval=save_interval,
-    must_save_interval=must_save_interval,
-    by_epoch=False,
-    max_keep_ckpts=1,
-    out_dir='checkpoints/')
-
-total_iters = 20000
-log_config = dict(
-    interval=1,
-    hooks=[
-        dict(type='TextLoggerHook'),
-        dict(type='TensorboardLoggerHook'),
-    ])
 
 custom_hooks = [
     dict(
@@ -210,4 +127,3 @@ custom_hooks = [
 
 load_from = None
 resume_from = None
-workflow = [('train', save_interval)]

@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
-# EditFlow fixed-eps split-stage + dual LoRA + step-2 teacher-x0 + step-1 LPIPS/DINO:
+# EditFlow dual-LoRA teacher-x0 + step-2-only alpha (alpha_data settings):
 #   Step-1 (step1 LoRA): velocity PIID
-#     + LPIPS/DINO on x0_hat = x_ref + pred_delta  (step-1 only; NOT on step-2)
-#   Step-2 (step2 LoRA): PIID-x0
+#     + LPIPS/DINO on x0_hat = x_ref + pred_delta  (step-1 only)
+#   Step-2 (step2 LoRA + proj_out_alpha): PIID-x0
 #     teacher_x0 = path_epsilon - teacher_u
-#     student_x0 = x_ref + pred_delta
+#     student_x0 = alpha * x_ref + pred_delta
+#       alpha = sigmoid(4-ch head); zero-logit init (~0.5); same as
+#       train_flux_edit_fixedeps_alpha_data.sh
 #   Sample eval: ImgEdit-Bench 9 categories x 5.
 #
-#   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh
-#   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh 8
-#   GPU_IDS=0 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh 1
-#   LPIPS_WEIGHT=0.2 DINO_WEIGHT=0.1 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh
+#   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0_step2_alpha.sh
+#   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0_step2_alpha.sh 8
+#   GPU_IDS=0 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0_step2_alpha.sh 1
+#   FRESH=1 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0_step2_alpha.sh
 #
-# Resume (default: auto-resume latest.pth under this RUN_NAME):
-#   bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh
-#   RESUME_RUN_DIR=20260721_021700 bash train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh
-#   FRESH=1 bash ...   # force a brand-new run (ignore existing ckpts)
-#
-# Optional pretrain (single LoRA is auto-copied to step1/step2 at load):
+# Optional pretrain (single LoRA copied to dual; alpha head stays fresh ~0.5):
 #   FRESH=1 PRETRAIN_CKPT=checkpoints/.../iter_20000.pth bash ...
 
 set -euo pipefail
@@ -54,8 +51,7 @@ LPIPS_WEIGHT="${LPIPS_WEIGHT:-0.2}"
 DINO_WEIGHT="${DINO_WEIGHT:-0.1}"
 GPU_IDS="${GPU_IDS:-0,1}"
 RUN_ID="${RUN_ID:-}"
-# Default pin to the current teacher_x0 run; empty = auto-pick newest latest.pth.
-RESUME_RUN_DIR="${RESUME_RUN_DIR:-20260721_021700}"
+RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-}"
 SPLIT_STAGE_STEP2_X0_WEIGHT="${SPLIT_STAGE_STEP2_X0_WEIGHT:-1.0}"
@@ -63,7 +59,7 @@ SPLIT_STAGE_STEP2_WARMUP_ITERS="${SPLIT_STAGE_STEP2_WARMUP_ITERS:-500}"
 NUM_DECAY_ITERS="${NUM_DECAY_ITERS:-1000}"
 # --------------------------------
 
-RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_split_stage_dual_lora_teacher_x0"
+RUN_NAME="gmkontext_uedit_fixedeps_k16_${NFE}nfe_pico400k_split_stage_dual_lora_teacher_x0_step2_alpha"
 
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 export KONTEXT_MODEL_PATH="${KONTEXT_MODEL}"
@@ -121,7 +117,6 @@ CKPT_BASE="checkpoints/${RUN_NAME}"
 LOAD_FROM=""
 RESUME_FROM=""
 
-# Resume takes priority over PRETRAIN_CKPT (unless FRESH=1).
 if [[ "${FRESH}" != "1" ]]; then
     RESUME_RUN_ID="${RESUME_RUN_DIR:-${RUN_ID:-}}"
     if [[ -z "${RESUME_RUN_ID}" && -d "${PROJECT_DIR}/${CKPT_BASE}" ]]; then
@@ -135,7 +130,7 @@ if [[ "${FRESH}" != "1" ]]; then
     if [[ -n "${RESUME_RUN_ID}" && -e "${PROJECT_DIR}/${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth" ]]; then
         RESUME_FROM="${CKPT_BASE}/${RESUME_RUN_ID}/latest.pth"
         RESUME_RUN_DIR="${RESUME_RUN_ID}"
-        echo "[resume] resuming dual-lora teacher-x0 run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
+        echo "[resume] resuming dual-lora teacher-x0 step2-alpha run_id=${RESUME_RUN_ID} from ${RESUME_FROM}"
     elif [[ -n "${RESUME_RUN_ID}" ]]; then
         echo "[resume] RESUME_RUN_DIR=${RESUME_RUN_ID} has no latest.pth under ${CKPT_BASE}; will try pretrain / fresh start" >&2
         RESUME_RUN_DIR=""
@@ -145,7 +140,7 @@ fi
 if [[ -z "${RESUME_FROM}" && -n "${PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${PRETRAIN_CKPT}" ]]; then
     LOAD_FROM="${PRETRAIN_CKPT}"
     echo "[pretrain] loading student weights from ${LOAD_FROM}"
-    echo "[pretrain] single LoRA + heads will be copied to dual step1/step2 at load"
+    echo "[pretrain] single/dual LoRA remapped; step2 proj_out_alpha stays fresh (~0.5)"
 elif [[ -z "${RESUME_FROM}" && -n "${PRETRAIN_CKPT}" ]]; then
     echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT}); starting without pretrain" >&2
 fi
@@ -174,6 +169,7 @@ CFG_OPTS=(
     "model.lpips.vgg_weights_path=${LPIPS_VGG16}"
     "model.dino_loss.checkpoint_path=${DINOV3_MODEL}"
     "model.diffusion.denoising.dual_stage_lora=True"
+    "model.diffusion.denoising.step2_alpha=True"
     "checkpoint_config.interval=${CKPT_INTERVAL}"
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"
     "sample_eval.interval=${SAMPLE_INTERVAL}"
@@ -194,9 +190,9 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching dual-LoRA teacher-x0 + step1 LPIPS/DINO: nproc=${NUM_GPUS}  iters=${TOTAL_ITERS}  lpips_w=${LPIPS_WEIGHT}  dino_w=${DINO_WEIGHT}  step2_x0_w=${SPLIT_STAGE_STEP2_X0_WEIGHT}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching dual-LoRA teacher-x0 + step2 alpha: nproc=${NUM_GPUS}  iters=${TOTAL_ITERS}  lpips_w=${LPIPS_WEIGHT}  dino_w=${DINO_WEIGHT}  step2_x0_w=${SPLIT_STAGE_STEP2_X0_WEIGHT}  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
-    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_split_stage_dual_lora_teacher_x0.py \
+    configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_split_stage_dual_lora_teacher_x0_step2_alpha.py \
     --launcher pytorch --diff_seed \
     --cfg-options "${CFG_OPTS[@]}"

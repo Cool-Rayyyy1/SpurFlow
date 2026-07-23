@@ -15,3 +15,6 @@ from .latent_diffusion_image_edit_gan import (
 )
 from .latent_diffusion_image_edit_dmd2 import LatentDiffusionImageEditDMD2
 from .latent_diffusion_image_edit_lpips import LatentDiffusionImageEditAlphaLpips
+from .latent_diffusion_image_edit_dual_lora_teacher_x0_lpips import (
+    LatentDiffusionImageEditDualLoraTeacherX0Lpips,
+)

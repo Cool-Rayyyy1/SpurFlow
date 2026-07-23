@@ -1,83 +1,62 @@
-_base_ = ['./_ddp_train.py', './_data_trainval_data.py']
+_base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh`
-# Split-stage dual-LoRA + step-1 LPIPS/DINO:
-#   step-1 (step1 LoRA): velocity PIID
-#     + LPIPS/DINO on x0_hat = x_ref + pred_delta (step-1 only)
-#   step-2 (step2 LoRA): PIID-x0
-#     teacher_x0 = path_epsilon - teacher_u
-#     student_x0 = x_ref + pred_delta
-# Validation: ImgEdit-Bench 9x5; step-1 -> x_t; step-2 -> x_ref + delta.
-#
-# During split_stage_step2_warmup_iters, step-2 is skipped (scale=0), so step2
-# LoRA/heads do not participate in loss. DDP needs unused-parameter detection.
-find_unused_parameters = True
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
-kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
-lpips_vgg16 = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'
-dinov3_model = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/'
-    'dinov3-vitl16-pretrain-lvd1689m/model.safetensors')
+# `train_flux_edit_fixedeps_alpha_data_qwen.sh` -> gmqwen_uedit_fixedeps_alpha_k16_2nfe_pico400k
+# Four-channel continuous alpha: alpha = sigmoid(raw head), zero-logit init.
+# The four channels map independently to the four positions in each 2x2 patch.
+# student_u = path_epsilon - alpha * x_ref - pred_delta
+name = 'gmqwen_uedit_fixedeps_alpha_k16_2nfe_pico400k'
+qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
-    type='LatentDiffusionImageEditDualLoraTeacherX0Lpips',
+    type='LatentDiffusionQwenImageEdit',
     vae=dict(
-        type='PretrainedVAE',
-        from_pretrained=kontext_model,
+        type='PretrainedVAEQwenImage',
+        from_pretrained=qwen_model,
         subfolder='vae',
         freeze=True,
+        use_slicing=True,
         torch_dtype='bfloat16'),
-    lpips=dict(
-        weights_path=lpips_weights,
-        vgg_weights_path=lpips_vgg16,
-        spatial=False),
-    dino_loss=dict(
-        checkpoint_path=dinov3_model,
-        input_size=224,
-        feature_layers=(23,),
-        backbone_dtype='bf16',
-        loss_type='cosine'),
     diffusion=dict(
-        type='ArcFlowEditImitationSplitStageDualLoraTeacherX0',
-        policy_type='ArcFlowEdit',
+        type='ArcFlowEditAlphaImitation',
+        policy_type='ArcFlowEditNewAlpha',
         denoising=dict(
-            type='ArcFluxEditNewTransformer2DModel',
+            type='ArcQwenEditAlphaImageTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
                 'proj_out_deltax',
                 'proj_out_logweights',
                 'proj_out_loggamma',
+                'proj_out_alpha',
                 'norm_out',
                 'lora'],
             inherit_proj_out_deltax=False,
             deltax_init='kaiming',
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             num_gaussians=16,
             logweights_channels=4,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16',
             checkpointing=True,
             use_lora=True,
-            dual_stage_lora=True,
             lora_target_modules=[
-                'proj_mlp',
-                'proj_out',
-                'ff.net.0.proj',
-                'ff.net.2',
-                'ff_context.net.0.proj',
-                'ff_context.net.2',
+                'img_mlp.net.0.proj',
+                'img_mlp.net.2',
                 'timestep_embedder.linear_1',
-                'timestep_embedder.linear_2'],
+                'timestep_embedder.linear_2'
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.0.proj' for i in range(59)
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.2' for i in range(59)
+            ],
             lora_dropout=0.05,
             lora_rank=256),
         flow_loss=dict(
@@ -88,25 +67,29 @@ model = dict(
         num_timesteps=1,
         timestep_sampler=dict(
             type='ContinuousTimeStepSampler',
-            shift=3.2,
+            use_dynamic_shifting=True,
+            base_seq_len=1024,
+            max_seq_len=32768,
+            base_logshift=0.5,
+            max_logshift=0.9,
             logit_normal_enable=False),
         denoising_mean_mode='U'),
     diffusion_use_ema=True,
     teacher=dict(
         type='GaussianFlow',
         denoising=dict(
-            type='FluxTransformer2DModel',
+            type='QwenImageEditTransformer2DModel',
             patch_size=2,
             freeze=True,
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16'),
         num_timesteps=1,
         denoising_mean_mode='U'),
@@ -122,24 +105,18 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
-    split_stage_step2_x0_loss_weight=1.0,
-    split_stage_step2_warmup_iters=2000,
-    # Step-1 only perceptual (decoded x0_hat = x_ref + step1 pred_delta).
-    lpips_loss_weight=0.2,
-    dino_loss_weight=0.1,
-    perceptual_image_size=256,
+    teacher_guidance_scale=4.0,
+    teacher_negative_prompt=' ',
+    teacher_guidance_norm_rescale=True,
     num_decay_iters=2000,
     window_substeps=3,
     gm_dropout=0.1,
     num_intermediate_states=4,
-    distilled_guidance_scale=3.5,
-    teacher_distilled_guidance_scale=3.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
 )
 test_cfg = dict(
-    distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
     nfe=2,
     timestep_ratio=1.0,
@@ -162,7 +139,7 @@ sample_eval = dict(
             'extract', 'remove', 'replace', 'style'],
         samples_per_category=5,
         seed=42,
-        resize_mode='kontext',
+        resize_mode='qwen',
     ),
     interval=save_interval,
     must_save_interval=must_save_interval,
@@ -173,8 +150,8 @@ sample_eval = dict(
 
 data = dict(
     workers_per_gpu=1,
-    train=dict(resize_mode='kontext'),
-    val=dict(resize_mode='kontext'),
+    train=dict(resize_mode='qwen'),
+    val=dict(resize_mode='qwen'),
     train_dataloader=dict(samples_per_gpu=1),
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
@@ -188,7 +165,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 20000
+total_iters = 50000
 log_config = dict(
     interval=1,
     hooks=[
@@ -202,12 +179,12 @@ custom_hooks = [
         module_keys=('diffusion_ema', ),
         interp_mode='lerp',
         interval=1,
-        start_iter=0,
+        start_iter=100,
         momentum_policy='karras',
         momentum_cfg=dict(gamma=7.0),
         priority='VERY_HIGH'),
 ]
 
 load_from = None
-resume_from = None
+resume_from = f'checkpoints/{name}/latest.pth'
 workflow = [('train', save_interval)]

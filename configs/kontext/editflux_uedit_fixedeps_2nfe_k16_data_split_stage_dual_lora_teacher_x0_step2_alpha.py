@@ -1,18 +1,18 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0.sh`
-# Split-stage dual-LoRA + step-1 LPIPS/DINO:
-#   step-1 (step1 LoRA): velocity PIID
+# `train_flux_edit_fixedeps_data_split_stage_dual_lora_teacher_x0_step2_alpha.sh`
+# Same as dual_lora_teacher_x0, plus step-2-only alpha head (alpha_data settings):
+#   step-1 (step1 LoRA): velocity PIID  (no alpha)
 #     + LPIPS/DINO on x0_hat = x_ref + pred_delta (step-1 only)
-#   step-2 (step2 LoRA): PIID-x0
+#   step-2 (step2 LoRA + proj_out_alpha): PIID-x0
 #     teacher_x0 = path_epsilon - teacher_u
-#     student_x0 = x_ref + pred_delta
-# Validation: ImgEdit-Bench 9x5; step-1 -> x_t; step-2 -> x_ref + delta.
+#     student_x0 = alpha * x_ref + pred_delta
+#       alpha = sigmoid(proj_out_alpha), 4-ch, zero-logit init (~0.5)
+# Validation: step-1 -> x_t; step-2 -> alpha * x_ref + pred_delta.
 #
-# During split_stage_step2_warmup_iters, step-2 is skipped (scale=0), so step2
-# LoRA/heads do not participate in loss. DDP needs unused-parameter detection.
+# During split_stage_step2_warmup_iters, step-2 (incl. alpha) is unused.
 find_unused_parameters = True
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0'
+name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0_step2_alpha'
 kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
@@ -40,16 +40,17 @@ model = dict(
         backbone_dtype='bf16',
         loss_type='cosine'),
     diffusion=dict(
-        type='ArcFlowEditImitationSplitStageDualLoraTeacherX0',
+        type='ArcFlowEditImitationSplitStageDualLoraTeacherX0Step2Alpha',
         policy_type='ArcFlowEdit',
         denoising=dict(
-            type='ArcFluxEditNewTransformer2DModel',
+            type='ArcFluxEditNewDualStageStep2AlphaTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
                 'proj_out_deltax',
                 'proj_out_logweights',
                 'proj_out_loggamma',
+                'proj_out_alpha',
                 'norm_out',
                 'lora'],
             inherit_proj_out_deltax=False,
@@ -69,6 +70,7 @@ model = dict(
             checkpointing=True,
             use_lora=True,
             dual_stage_lora=True,
+            step2_alpha=True,
             lora_target_modules=[
                 'proj_mlp',
                 'proj_out',
@@ -123,12 +125,11 @@ train_cfg = dict(
     use_uedit=True,
     fixed_path_epsilon=True,
     split_stage_step2_x0_loss_weight=1.0,
-    split_stage_step2_warmup_iters=2000,
-    # Step-1 only perceptual (decoded x0_hat = x_ref + step1 pred_delta).
+    split_stage_step2_warmup_iters=500,
     lpips_loss_weight=0.2,
     dino_loss_weight=0.1,
     perceptual_image_size=256,
-    num_decay_iters=2000,
+    num_decay_iters=1000,
     window_substeps=3,
     gm_dropout=0.1,
     num_intermediate_states=4,
@@ -188,7 +189,7 @@ checkpoint_config = dict(
     max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 20000
+total_iters = 30000
 log_config = dict(
     interval=1,
     hooks=[
