@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # EditFlow fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN:
 #   Standard random-segment PIID with ArcFlowEditNewAlpha (low alpha ~ edit region).
-#   Step-2 endpoint: Kontext VAE decode -> shared crop specs:
-#   Case A (local_enabled=False): global + random local; real = random edited
-#       image sampled from the dataset (load_unpaired_edited; works at bs=1).
+#   Step-2 endpoint: Kontext VAE decode -> shared crop specs (ref/real/fake):
+#   Case A (local_enabled=False): global + random local; paired edit real.
 #   Case B (local_enabled=True): global + alpha-mask local, paired ref/edit.
-#   Mask local crop uses step-2 alpha.detach() (edit mass = ref - alpha); fallback to global full.
+#   Source-conditional: cat([DINO(ref), DINO(target)]) ->
+#     D(ref, x_edit)=1, D(ref, x_student)=0.
+#   Mask local crop uses step-2 alpha.detach() (edit mass = percentile - alpha);
+#   mask failure falls back to random local (not a duplicate of global).
 #   GAN grads update the student through both NFE steps (gan_grad_step2_only=false by default).
 #   direct_delta_loss_weight=0 (off).
 #   Sample eval: ImgEdit-Bench 9 categories x 5 (same as train_flux_edit_fixedeps_alpha_data.sh).
@@ -53,7 +55,8 @@ GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
 RUN_ID="${RUN_ID:-}"
 RESUME_RUN_DIR="${RESUME_RUN_DIR:-}"
 FRESH="${FRESH:-0}"
-PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/model/gmkontext_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k_20260713/iter_20000.pth}"
+# Default to latest available alpha student under checkpoints/model/..._20260713/
+PRETRAIN_CKPT="${PRETRAIN_CKPT:-checkpoints/model/gmkontext_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k_20260713/iter_18000.pth}"
 STEP2_GAN_WARMUP_ITERS="${STEP2_GAN_WARMUP_ITERS:-0}"
 STEP2_GAN_RAMP_ITERS="${STEP2_GAN_RAMP_ITERS:-0}"
 STEP2_GAN_WEIGHT="${STEP2_GAN_WEIGHT:-0.05}"
@@ -79,6 +82,7 @@ MIN_COMPONENT_PIXELS="${MIN_COMPONENT_PIXELS:-16}"
 GAN_GLOBAL_WEIGHT="${GAN_GLOBAL_WEIGHT:-1.0}"
 GAN_RANDOM_LOCAL_WEIGHT="${GAN_RANDOM_LOCAL_WEIGHT:-1.0}"
 GAN_MASK_LOCAL_WEIGHT="${GAN_MASK_LOCAL_WEIGHT:-1.0}"
+CONDITION_ON_SOURCE="${CONDITION_ON_SOURCE:-true}"
 # --------------------------------
 
 RUN_NAME="gmkontext_uedit_fixedeps_alpha_k16_${NFE}nfe_pico400k_step2_alph_dino_gan"
@@ -95,7 +99,13 @@ if [[ -n "${PRETRAIN_CKPT}" && -e "${PROJECT_DIR}/${PRETRAIN_CKPT}" ]]; then
     LOAD_FROM="${PRETRAIN_CKPT}"
     echo "[pretrain] loading alpha student weights from ${LOAD_FROM}"
 elif [[ -n "${PRETRAIN_CKPT}" ]]; then
-    echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT}); starting from scratch" >&2
+    echo "[pretrain] PRETRAIN_CKPT not found (${PRETRAIN_CKPT})." >&2
+    if [[ "${ALLOW_NO_PRETRAIN:-0}" == "1" ]]; then
+        echo "[pretrain] ALLOW_NO_PRETRAIN=1; starting from scratch (alpha mask crop will mostly fallback)." >&2
+    else
+        echo "[pretrain] Refuse to start without alpha weights (flat alpha => mask_fallback=1). Set ALLOW_NO_PRETRAIN=1 to override." >&2
+        exit 1
+    fi
 fi
 
 if [[ "${FRESH}" != "1" ]]; then
@@ -157,6 +167,7 @@ CFG_OPTS=(
     "model.discriminator.gan_global_weight=${GAN_GLOBAL_WEIGHT}"
     "model.discriminator.gan_random_local_weight=${GAN_RANDOM_LOCAL_WEIGHT}"
     "model.discriminator.gan_mask_local_weight=${GAN_MASK_LOCAL_WEIGHT}"
+    "model.discriminator.condition_on_source=${CONDITION_ON_SOURCE}"
     "checkpoint_config.interval=${CKPT_INTERVAL}"
     "checkpoint_config.must_save_interval=${CKPT_MUST_SAVE_INTERVAL}"
     "sample_eval.interval=${SAMPLE_INTERVAL}"
@@ -176,7 +187,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  gan_weight=${STEP2_GAN_WEIGHT}  direct_delta_weight=${DIRECT_DELTA_WEIGHT}  gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+echo "Launching EditFlow step2 alpha-mask DINO GAN FSDP: nproc_per_node=${NUM_GPUS}  total_iters=${TOTAL_ITERS}  sample_interval=${SAMPLE_INTERVAL}  gan_weight=${STEP2_GAN_WEIGHT}  direct_delta_weight=${DIRECT_DELTA_WEIGHT}  gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY}  condition_on_source=${CONDITION_ON_SOURCE}  p_disable_local=${P_DISABLE_LOCAL}  edit_is_low_alpha=${EDIT_IS_LOW_ALPHA}  gan_weights=(${GAN_GLOBAL_WEIGHT},${GAN_RANDOM_LOCAL_WEIGHT},${GAN_MASK_LOCAL_WEIGHT})  load_from=${LOAD_FROM:-none}  resume_from=${RESUME_FROM:-none}  run=${RUN_NAME}  CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 
 torchrun --nnodes=1 --nproc_per_node="${NUM_GPUS}" "${PROJECT_DIR}/train.py" \
     configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data_step2_alph_dino_gan.py \

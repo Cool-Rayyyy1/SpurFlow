@@ -11,6 +11,36 @@ from .policies import ArcFlowEditPolicy, ArcFlowEditNewPolicy, ArcFlowEditNewAlp
 from lakonlab.utils import module_eval
 
 
+def _mixture_weight_stats_dict(policy, step_id: int) -> dict:
+    """Summarize K-mixture logweights before mean/mode reduce.
+
+    Returns spatial-mean softmax weights and argmax histogram over locations.
+    """
+    logweights = policy.denoising_output_x_0['logweights'].float()
+    # (B, K, ...)
+    weights = torch.softmax(logweights, dim=1)
+    k = int(logweights.size(1))
+    reduce_dims = tuple(i for i in range(weights.dim()) if i != 1)
+    mean_weights = weights.mean(dim=reduce_dims).detach().cpu().tolist()
+    mode_idx = logweights.argmax(dim=1).reshape(-1)
+    counts = torch.bincount(mode_idx.detach().cpu(), minlength=k).tolist()
+    total = float(max(sum(counts), 1))
+    mode_frac = [c / total for c in counts]
+    dominant_k = int(max(range(k), key=lambda i: counts[i]))
+    # entropy of spatial-mean weights
+    mw = torch.tensor(mean_weights, dtype=torch.float32).clamp_min(1e-12)
+    entropy = float((-(mw * mw.log()).sum()).item())
+    return {
+        'step': int(step_id),
+        'num_gaussians': k,
+        'mean_weights': [float(x) for x in mean_weights],
+        'mode_counts': [int(c) for c in counts],
+        'mode_frac': [float(x) for x in mode_frac],
+        'dominant_k': dominant_k,
+        'mean_weight_entropy': entropy,
+    }
+
+
 @MODULES.register_module()
 class ArcFlowEditImitation(ArcFlowImitation):
     """Data-dependent ArcFlow distillation with edit residual parameterization.
@@ -207,6 +237,10 @@ class ArcFlowEditImitation(ArcFlowImitation):
         if show_pbar:
             pbar = mmcv.ProgressBar(nfe)
 
+        dump_mixture_stats = bool(cfg.get('dump_mixture_stats', False)) or bool(
+            getattr(self, '_dump_mixture_stats', False))
+        mixture_stats = []
+
         for step_id in range(nfe):
             is_final_step = step_id == nfe - 1
             if is_final_step:
@@ -220,7 +254,20 @@ class ArcFlowEditImitation(ArcFlowImitation):
             policy = self.policy_class(
                 denoising_output, x_t_src, sigma_t_src, x_ref=x_ref,
                 path_epsilon=path_epsilon, eps=eps)
-            if not is_final_step:
+            # Collect raw (pre-mode) mixture weight distribution for diagnostics.
+            if dump_mixture_stats and hasattr(policy, 'denoising_output_x_0'):
+                mixture_stats.append(
+                    _mixture_weight_stats_dict(policy, step_id=step_id))
+            # mixture_reduce: 'mean' (default) | 'mode' (argmax component only)
+            mixture_reduce = str(
+                cfg.get('mixture_reduce', getattr(self, '_mixture_reduce', 'mean'))
+            ).lower()
+            if mixture_reduce == 'mode':
+                if not hasattr(policy, 'mode_'):
+                    raise ValueError(
+                        "test_cfg.mixture_reduce='mode' requires a policy with mode_().")
+                policy.mode_()
+            elif not is_final_step:
                 temperature = cfg.get('temperature', 1.0)
                 policy.temperature_(temperature)
 
@@ -250,6 +297,9 @@ class ArcFlowEditImitation(ArcFlowImitation):
         if show_pbar:
             sys.stdout.write('\n')
 
+        # Prefer object.__setattr__ so nn.Module bookkeeping cannot drop the attr.
+        object.__setattr__(
+            self, '_last_mixture_stats', mixture_stats if dump_mixture_stats else None)
         return x_t_src.to(ori_dtype)
 
 
@@ -1518,9 +1568,16 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
                 from lakonlab.models.architecture.dinov3_discriminator import split_stage_gan_loss_scale
                 gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
             log_vars['gan_loss_scale'] = gan_scale
+            # Roll out endpoint when any endpoint loss is active (GAN / x0 / HF).
+            need_endpoint = (
+                gan_scale > 0
+                or float(self.train_cfg.get('x0_loss_weight', 0.0)) > 0
+                or float(self.train_cfg.get('hf_loss_weight', 0.0)) > 0
+                or float(self.train_cfg.get('lpips_loss_weight', 0.0)) > 0
+                or bool(self.train_cfg.get('force_step2_rollout', False)))
             step2_latent = None
             step2_alpha = None
-            if gan_scale > 0:
+            if need_endpoint:
                 rollout = self._rollout_nfe_latent(
                     x_ref, path_epsilon, kwargs, return_step2_alpha=True)
                 step2_latent, step2_alpha = rollout

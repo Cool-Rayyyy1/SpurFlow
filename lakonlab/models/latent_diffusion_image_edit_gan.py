@@ -167,6 +167,7 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
 
         step2_latent = extra.get('step2_latent')
         real_images = data.get('edited_images')
+        source_images = data.get('source_images')
         w_gan = self.train_cfg.get('split_stage_gan_loss_weight', 1.0)
         gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
         log_vars['gan_loss_scale'] = gan_scale
@@ -181,13 +182,27 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
             disc = _discriminator_module(self)
             crop_specs = disc.sample_crop_specs(bs, device)
             step_indices = disc.make_step_indices(bs, device)
+            cond_images = None
+            if getattr(disc, 'condition_on_source', False):
+                if source_images is None:
+                    raise ValueError(
+                        'condition_on_source=True requires data["source_images"] '
+                        'for D(x_src, x_target).')
+                cond_images = source_images
+                if cond_images.shape[-2:] != fake_images.shape[-2:]:
+                    cond_images = F.interpolate(
+                        cond_images.float(),
+                        size=fake_images.shape[-2:],
+                        mode='bilinear',
+                        align_corners=False).to(dtype=fake_images.dtype)
 
             loss_d = self.discriminator(
                 real_images=real_images,
                 fake_images=fake_images.detach(),
                 gan_mode='discriminator',
                 crop_specs=crop_specs,
-                step_indices=step_indices)
+                step_indices=step_indices,
+                cond_images=cond_images)
             loss_d = gan_scale * loss_d
             if loss_scaler is None:
                 loss_d.backward()
@@ -195,9 +210,15 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
                 loss_scaler.scale(loss_d).backward()
             with torch.no_grad():
                 real_logits = self.discriminator(
-                    real_images, step_indices=step_indices, crop_specs=crop_specs)
+                    real_images,
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 fake_logits = self.discriminator(
-                    fake_images.detach(), step_indices=step_indices, crop_specs=crop_specs)
+                    fake_images.detach(),
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 d_log_vars = disc.build_log_vars(
                     real_logits, fake_logits, loss_d)
             log_vars.update(d_log_vars)
@@ -207,7 +228,8 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
                 fake_images=fake_images,
                 gan_mode='generator',
                 crop_specs=crop_specs,
-                step_indices=step_indices)
+                step_indices=step_indices,
+                cond_images=cond_images)
             loss_generator = loss_diffusion + (w_gan * gan_scale) * loss_g_gan
             if loss_scaler is None:
                 loss_generator.backward()
@@ -216,7 +238,10 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
             _set_requires_grad(self.discriminator, True)
             with torch.no_grad():
                 fake_logits = self.discriminator(
-                    fake_images, step_indices=step_indices, crop_specs=crop_specs)
+                    fake_images,
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 g_log_vars = disc.build_generator_log_vars(
                     fake_logits, loss_g_gan)
             log_vars.update(g_log_vars)
@@ -233,15 +258,37 @@ class LatentDiffusionImageEditStep2DinoFeatureGAN(LatentDiffusionImageEditStep2G
 
 @MODELS.register_module()
 class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditStep2DinoFeatureGAN):
-    """Step-2 PIID + alpha-guided mask local crop DINO feature GAN."""
+    """Step-2 PIID + alpha-guided mask local crop DINO feature GAN.
+
+    With ``condition_on_source=True``, D scores paired features
+    ``cat([DINO(ref), DINO(target)])``:
+    D(ref, x_edit)=1, D(ref, x_student)=0. Unpaired reals are disabled in that mode.
+    """
+
+    @staticmethod
+    def _match_spatial(images: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+        if images.shape[-2:] == ref.shape[-2:]:
+            return images.to(device=ref.device, dtype=ref.dtype)
+        out = F.interpolate(
+            images.float(),
+            size=ref.shape[-2:],
+            mode='bilinear',
+            align_corners=False)
+        return out.to(device=ref.device, dtype=ref.dtype)
 
     @staticmethod
     def _prepare_gan_real_images(
             real_images: torch.Tensor,
             crop_meta: Optional[Dict[str, torch.Tensor]],
-            unpaired_images: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Case A (~local_enabled): dataset-sampled unpaired edit; Case B: paired edit."""
-        if crop_meta is None or 'local_enabled' not in crop_meta:
+            unpaired_images: Optional[torch.Tensor] = None,
+            *,
+            allow_unpaired: bool = True) -> torch.Tensor:
+        """Case A (~local_enabled): dataset-sampled unpaired edit; Case B: paired edit.
+
+        Unpaired reals are skipped when ``allow_unpaired=False`` (source-conditional GAN),
+        because D(ref_i, edit_j) must not be labeled real.
+        """
+        if (not allow_unpaired) or crop_meta is None or 'local_enabled' not in crop_meta:
             return real_images
         local_enabled = crop_meta['local_enabled'].to(
             device=real_images.device, dtype=torch.bool)
@@ -278,6 +325,7 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
         step2_alpha = extra.get('step2_alpha')
         real_images = data.get('edited_images')
         unpaired_images = data.get('unpaired_edited_images')
+        source_images = data.get('source_images')
         w_gan = self.train_cfg.get('split_stage_gan_loss_weight', 1.0)
         gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
         log_vars['gan_loss_scale'] = gan_scale
@@ -292,14 +340,26 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
             disc = _discriminator_module(self)
             step_indices = disc.make_step_indices(bs, device)
             _, _, height, width = fake_images.shape
+            alpha_for_crop = None if step2_alpha is None else step2_alpha.detach()
             crop_specs = disc.sample_crop_specs(
                 bs, device,
-                alpha=step2_alpha,
+                alpha=alpha_for_crop,
                 image_height=height,
                 image_width=width)
             crop_meta = getattr(disc, '_last_crop_meta', None)
+            condition_on_source = bool(getattr(disc, 'condition_on_source', False))
             gan_real_images = self._prepare_gan_real_images(
-                real_images, crop_meta, unpaired_images=unpaired_images)
+                real_images,
+                crop_meta,
+                unpaired_images=unpaired_images,
+                allow_unpaired=not condition_on_source)
+            cond_images = None
+            if condition_on_source:
+                if source_images is None:
+                    raise ValueError(
+                        'condition_on_source=True requires data["source_images"] '
+                        'for D(x_src, x_target).')
+                cond_images = self._match_spatial(source_images, fake_images)
 
             loss_d = self.discriminator(
                 real_images=gan_real_images,
@@ -307,7 +367,8 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 gan_mode='discriminator',
                 crop_specs=crop_specs,
                 step_indices=step_indices,
-                alpha=step2_alpha)
+                alpha=alpha_for_crop,
+                cond_images=cond_images)
             loss_d = gan_scale * loss_d
             if loss_scaler is None:
                 loss_d.backward()
@@ -315,13 +376,22 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 loss_scaler.scale(loss_d).backward()
             with torch.no_grad():
                 real_logits = self.discriminator(
-                    gan_real_images, step_indices=step_indices, crop_specs=crop_specs)
+                    gan_real_images,
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 fake_logits = self.discriminator(
-                    fake_images.detach(), step_indices=step_indices, crop_specs=crop_specs)
+                    fake_images.detach(),
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 d_extra = getattr(disc, '_last_gan_extra', None) or {}
-                if crop_meta is not None and 'local_enabled' in crop_meta:
+                if (not condition_on_source
+                        and crop_meta is not None
+                        and 'local_enabled' in crop_meta):
                     d_extra['gan_unpaired_real_rate'] = float(
                         (~crop_meta['local_enabled']).float().mean())
+                d_extra['dino_gan_condition_on_source'] = float(condition_on_source)
                 d_log_vars = disc.build_log_vars(
                     real_logits, fake_logits, loss_d, extra=d_extra)
             log_vars.update(d_log_vars)
@@ -332,7 +402,8 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 gan_mode='generator',
                 crop_specs=crop_specs,
                 step_indices=step_indices,
-                alpha=step2_alpha)
+                alpha=alpha_for_crop,
+                cond_images=cond_images)
             loss_generator = loss_diffusion + (w_gan * gan_scale) * loss_g_gan
             if loss_scaler is None:
                 loss_generator.backward()
@@ -341,7 +412,10 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
             _set_requires_grad(self.discriminator, True)
             with torch.no_grad():
                 fake_logits = self.discriminator(
-                    fake_images, step_indices=step_indices, crop_specs=crop_specs)
+                    fake_images,
+                    step_indices=step_indices,
+                    crop_specs=crop_specs,
+                    cond_images=cond_images)
                 g_extra = getattr(disc, '_last_gan_extra', None) or {}
                 g_log_vars = disc.build_generator_log_vars(
                     fake_logits, loss_g_gan, extra=g_extra)

@@ -9,3 +9,4 @@ __pycache__/
 __pycache__/
 *.py[cod]
 evaluation/outputs/
+cuda_*.run

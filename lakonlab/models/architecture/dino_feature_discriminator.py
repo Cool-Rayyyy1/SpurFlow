@@ -4,6 +4,8 @@
 #   frozen DINOv3 intermediate features + trainable conv head(s)
 #   shared global/local random crops for real & fake RGB images in [0, 1]
 #   optional alpha-guided mask local crop (low alpha = edit region)
+#   optional source-conditional fusion: cat([DINO(ref), DINO(target)], dim=1)
+#     -> D(ref, x_edit)=1, D(ref, x_student)=0
 #   logistic (softplus) D/G losses
 
 from __future__ import annotations
@@ -61,16 +63,38 @@ def sample_dino_crop_specs(
         local_crop_scale: Sequence[float] = (0.125, 0.5),
         crop_aspect_ratio: Sequence[float] = (0.75, 1.3333333333),
 ) -> List[torch.Tensor]:
-    """Shared crop specs for real and fake. Index 0 is always the full image."""
-    crop_specs = [
-        torch.tensor(
-            [[0.0, 0.0, 1.0, 1.0]] * int(batch_size),
-            device=device,
-            dtype=torch.float32,
+    """Shared crop specs for real and fake.
+
+    When ``num_global_crops >= 1``, index 0 is the full image and additional
+    crops use ``global_crop_scale`` / ``local_crop_scale`` as before.
+    When ``num_global_crops <= 0``, only local random crops are returned
+    (refinement-only GAN; no full-frame semantic view).
+    """
+    num_global_crops = int(num_global_crops)
+    num_local_crops = int(num_local_crops)
+    crop_specs: List[torch.Tensor] = []
+    if num_global_crops > 0:
+        crop_specs.append(
+            torch.tensor(
+                [[0.0, 0.0, 1.0, 1.0]] * int(batch_size),
+                device=device,
+                dtype=torch.float32,
+            )
         )
-    ]
-    for crop_idx in range(1, int(num_global_crops) + int(num_local_crops)):
-        scale_range = global_crop_scale if crop_idx < int(num_global_crops) else local_crop_scale
+        start = 1
+        total = num_global_crops + num_local_crops
+    else:
+        if num_local_crops <= 0:
+            raise ValueError(
+                'sample_dino_crop_specs requires num_local_crops >= 1 '
+                'when num_global_crops <= 0')
+        start = 0
+        total = num_local_crops
+    for crop_idx in range(start, total):
+        if num_global_crops > 0 and crop_idx < num_global_crops:
+            scale_range = global_crop_scale
+        else:
+            scale_range = local_crop_scale
         crop_specs.append(
             torch.tensor(
                 [
@@ -330,7 +354,7 @@ def sample_dino_alpha_mask_crop_specs(
         edited images as GAN reals (see ``ImageEdit.load_unpaired_edited``).
     Case B (``local_enabled=True``):
         crops = [full global, alpha-mask local]; use paired ref/edit real images.
-        Mask failure falls back to full global (no random local).
+        Mask failure falls back to random local (not a duplicate of global).
     """
     batch_size = int(batch_size)
     global_spec = torch.tensor(
@@ -373,19 +397,16 @@ def sample_dino_alpha_mask_crop_specs(
                 hot_mass_frac=hot_mass_frac,
             )
             if spec is None:
+                # Keep a local crop via random fallback; do not duplicate global.
                 mask_fallback[batch_idx] = True
-                local_crop[batch_idx] = global_spec[batch_idx]
+                local_crop[batch_idx] = random_local[batch_idx]
             else:
                 local_crop[batch_idx] = torch.tensor(spec, device=device, dtype=torch.float32)
     else:
         mask_fallback.fill_(True)
-        local_crop = torch.where(
-            local_enabled.unsqueeze(1),
-            global_spec,
-            random_local,
-        )
+        local_crop = random_local.clone()
 
-    # Per-sample: Case A keeps random local; Case B uses mask (or global fallback).
+    # Per-sample: Case A keeps random local; Case B uses mask (or random fallback).
     local_crop = torch.where(
         local_enabled.unsqueeze(1),
         local_crop,
@@ -564,7 +585,18 @@ class DinoDiscriminatorHead(nn.Module):
 
 @MODULES.register_module()
 class DinoFeatureDiscriminator(nn.Module):
-    """Frozen DINOv3 ViT-L/16 features + TDM-style conv discriminator head."""
+    """Frozen DINOv3 ViT-L/16 features + TDM-style conv discriminator head.
+
+    Real/fake targets are RGB in ``[0, 1]``. With ``condition_on_source=True``
+    the discriminator scores pairs:
+
+      D(x_src, x_edit) -> 1
+      D(x_src, x_student) -> 0
+
+    Source and target share crop windows; backbone features are channel-concatenated
+    before the head so D judges edit quality relative to the source, instead of
+    unconditional photorealism (which can pull edits back toward the source).
+    """
 
     def __init__(
             self,
@@ -585,6 +617,9 @@ class DinoFeatureDiscriminator(nn.Module):
             head_gradient_checkpointing: bool = True,
             head_norm_groups: int = 32,
             dense_output: bool = False,
+            condition_on_source: bool = False,
+            gan_global_weight: float = 1.0,
+            gan_local_weight: float = 1.0,
             backbone_dtype: str = 'bf16',
             head_dtype: str = 'fp32',
             freeze_backbone: bool = True):
@@ -600,6 +635,17 @@ class DinoFeatureDiscriminator(nn.Module):
         self.crop_aspect_ratio = tuple(float(v) for v in crop_aspect_ratio)
         self.clamp_pixels = bool(clamp_pixels)
         self.step_conditioning = bool(step_conditioning)
+        self.condition_on_source = bool(condition_on_source)
+        self.gan_global_weight = float(gan_global_weight)
+        self.gan_local_weight = float(gan_local_weight)
+        if self.num_global_crops <= 0 and self.num_local_crops <= 0:
+            raise ValueError(
+                'DinoFeatureDiscriminator needs num_global_crops > 0 or '
+                'num_local_crops > 0')
+        if self.gan_global_weight <= 0 and self.gan_local_weight <= 0:
+            raise ValueError(
+                'DinoFeatureDiscriminator needs gan_global_weight > 0 or '
+                'gan_local_weight > 0')
 
         dtype_map = dict(fp32=torch.float32, fp16=torch.float16, bf16=torch.bfloat16)
         self.backbone_dtype = dtype_map[str(backbone_dtype).lower()]
@@ -613,6 +659,8 @@ class DinoFeatureDiscriminator(nn.Module):
             self.backbone.eval()
 
         channels = int(self.backbone.num_features)
+        if self.condition_on_source:
+            channels = channels * 2
         self.head = DinoDiscriminatorHead(
             channels=channels,
             num_discriminators=len(self.feature_layers),
@@ -668,7 +716,7 @@ class DinoFeatureDiscriminator(nn.Module):
             clamp_pixels=self.clamp_pixels,
         )
 
-    def _extract_features(
+    def _extract_single_features(
             self,
             image_pixels: torch.Tensor,
             crop_specs: Sequence[torch.Tensor],
@@ -698,17 +746,64 @@ class DinoFeatureDiscriminator(nn.Module):
                     features_by_layer[layer_idx].append(feature.to(self.head_dtype))
         return features_by_layer
 
+    def _fuse_cond_target_features(
+            self,
+            cond_features: List[List[torch.Tensor]],
+            target_features: List[List[torch.Tensor]],
+    ) -> List[List[torch.Tensor]]:
+        fused: List[List[torch.Tensor]] = []
+        for cond_crops, target_crops in zip(cond_features, target_features):
+            fused.append([
+                torch.cat([cond_feat, target_feat], dim=1)
+                for cond_feat, target_feat in zip(cond_crops, target_crops)
+            ])
+        return fused
+
+    def _extract_features(
+            self,
+            image_pixels: torch.Tensor,
+            crop_specs: Sequence[torch.Tensor],
+            *,
+            requires_input_grad: bool,
+            cond_images: Optional[torch.Tensor] = None) -> List[List[torch.Tensor]]:
+        target_features = self._extract_single_features(
+            image_pixels, crop_specs, requires_input_grad=requires_input_grad)
+        if cond_images is None:
+            return target_features
+        if cond_images.shape[-2:] != image_pixels.shape[-2:]:
+            cond_images = F.interpolate(
+                cond_images.float(),
+                size=image_pixels.shape[-2:],
+                mode='bilinear',
+                align_corners=False)
+            if image_pixels.dtype != torch.float32:
+                cond_images = cond_images.to(dtype=image_pixels.dtype)
+        # Source is a fixed conditioner; never backprop into it.
+        cond_features = self._extract_single_features(
+            cond_images, crop_specs, requires_input_grad=False)
+        return self._fuse_cond_target_features(cond_features, target_features)
+
     def logits_from_pixels(
             self,
             image_pixels: torch.Tensor,
             step_indices: torch.Tensor,
             *,
             crop_specs: Optional[Sequence[torch.Tensor]] = None,
-            requires_input_grad: bool = False) -> torch.Tensor:
+            requires_input_grad: bool = False,
+            cond_images: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if self.condition_on_source and cond_images is None:
+            raise ValueError(
+                'DinoFeatureDiscriminator(condition_on_source=True) requires '
+                'cond_images/source_images for D(x_src, x_target).')
+        if (not self.condition_on_source) and cond_images is not None:
+            cond_images = None
         if crop_specs is None:
             crop_specs = self.sample_crop_specs(image_pixels.shape[0], image_pixels.device)
         features = self._extract_features(
-            image_pixels, crop_specs, requires_input_grad=requires_input_grad)
+            image_pixels,
+            crop_specs,
+            requires_input_grad=requires_input_grad,
+            cond_images=cond_images)
         return self.head(features, step_indices.to(self.device))
 
     @staticmethod
@@ -718,6 +813,67 @@ class DinoFeatureDiscriminator(nn.Module):
     @staticmethod
     def _generator_loss(logits_fake: torch.Tensor) -> torch.Tensor:
         return F.softplus(-logits_fake.float()).mean()
+
+    def num_crop_views(self) -> int:
+        if self.num_global_crops <= 0:
+            return int(self.num_local_crops)
+        return int(self.num_global_crops) + int(self.num_local_crops)
+
+    def _crop_branch_weight(self, crop_idx: int) -> float:
+        if self.num_global_crops <= 0:
+            return self.gan_local_weight
+        if crop_idx < self.num_global_crops:
+            return self.gan_global_weight
+        return self.gan_local_weight
+
+    def _weighted_crop_gan_loss(
+            self,
+            logits_real: Optional[torch.Tensor],
+            logits_fake: torch.Tensor,
+            *,
+            gan_mode: str) -> torch.Tensor:
+        """Average D/G loss across crops with global/local weights.
+
+        Logits are laid out as ``(num_crops * B, ...)`` from
+        ``DinoDiscriminatorHead`` (crops concatenated on the batch dim).
+        """
+        num_crops = self.num_crop_views()
+        if num_crops <= 0:
+            raise RuntimeError('DinoFeatureDiscriminator has no crop views')
+        if logits_fake.shape[0] % num_crops != 0:
+            # Fallback for unexpected layouts (keeps old equal-weight behaviour).
+            if gan_mode == 'discriminator':
+                assert logits_real is not None
+                return self._discriminator_loss(logits_real, logits_fake)
+            return self._generator_loss(logits_fake)
+
+        batch_size = logits_fake.shape[0] // num_crops
+        fake_by_crop = logits_fake.view(num_crops, batch_size, *logits_fake.shape[1:])
+        real_by_crop = None
+        if gan_mode == 'discriminator':
+            assert logits_real is not None
+            real_by_crop = logits_real.view(num_crops, batch_size, *logits_real.shape[1:])
+
+        total = logits_fake.new_zeros(())
+        total_weight = 0.0
+        for crop_idx in range(num_crops):
+            weight = float(self._crop_branch_weight(crop_idx))
+            if weight <= 0:
+                continue
+            lf = fake_by_crop[crop_idx]
+            if gan_mode == 'discriminator':
+                lr = real_by_crop[crop_idx]
+                crop_loss = self._discriminator_loss(lr, lf)
+            else:
+                crop_loss = self._generator_loss(lf)
+            total = total + weight * crop_loss
+            total_weight += weight
+        if total_weight <= 0:
+            if gan_mode == 'discriminator':
+                assert logits_real is not None
+                return self._discriminator_loss(logits_real, logits_fake)
+            return self._generator_loss(logits_fake)
+        return total / total_weight
 
     @staticmethod
     def build_log_vars(real_logits: torch.Tensor, fake_logits: torch.Tensor, loss_d: torch.Tensor) -> Dict[str, float]:
@@ -746,7 +902,11 @@ class DinoFeatureDiscriminator(nn.Module):
             fake_images: Optional[torch.Tensor] = None,
             gan_mode: Optional[str] = None,
             step_indices: Optional[torch.Tensor] = None,
-            crop_specs: Optional[Sequence[torch.Tensor]] = None):
+            crop_specs: Optional[Sequence[torch.Tensor]] = None,
+            cond_images: Optional[torch.Tensor] = None,
+            source_images: Optional[torch.Tensor] = None):
+        if cond_images is None:
+            cond_images = source_images
         if gan_mode == 'discriminator':
             assert real_images is not None and fake_images is not None
             if step_indices is None:
@@ -754,10 +914,19 @@ class DinoFeatureDiscriminator(nn.Module):
             if crop_specs is None:
                 crop_specs = self.sample_crop_specs(fake_images.shape[0], fake_images.device)
             logits_real = self.logits_from_pixels(
-                real_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
+                real_images.detach(),
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=False,
+                cond_images=None if cond_images is None else cond_images.detach())
             logits_fake = self.logits_from_pixels(
-                fake_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
-            return self._discriminator_loss(logits_real, logits_fake)
+                fake_images.detach(),
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=False,
+                cond_images=None if cond_images is None else cond_images.detach())
+            return self._weighted_crop_gan_loss(
+                logits_real, logits_fake, gan_mode='discriminator')
 
         if gan_mode == 'generator':
             assert fake_images is not None
@@ -766,20 +935,36 @@ class DinoFeatureDiscriminator(nn.Module):
             if crop_specs is None:
                 crop_specs = self.sample_crop_specs(fake_images.shape[0], fake_images.device)
             logits_fake = self.logits_from_pixels(
-                fake_images, step_indices, crop_specs=crop_specs, requires_input_grad=True)
-            return self._generator_loss(logits_fake)
+                fake_images,
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=True,
+                cond_images=None if cond_images is None else cond_images.detach())
+            return self._weighted_crop_gan_loss(
+                None, logits_fake, gan_mode='generator')
 
         if images is None:
             raise ValueError('DinoFeatureDiscriminator requires `images` when gan_mode is None.')
         if step_indices is None:
             step_indices = self.make_step_indices(images.shape[0], images.device)
         return self.logits_from_pixels(
-            images, step_indices, crop_specs=crop_specs, requires_input_grad=False)
+            images,
+            step_indices,
+            crop_specs=crop_specs,
+            requires_input_grad=False,
+            cond_images=None if cond_images is None else cond_images.detach())
 
 
 @MODULES.register_module()
 class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
-    """DINO feature GAN with optional alpha-guided mask local crop."""
+    """DINO feature GAN with optional alpha-guided mask local crop.
+
+    With ``condition_on_source=True`` (default), ref and target share crop windows,
+    DINO features are channel-concatenated, and the head scores pairs:
+
+      D(x_src, x_edit) -> 1
+      D(x_src, x_student) -> 0
+    """
 
     CROP_GLOBAL = 0
     CROP_LOCAL = 1
@@ -808,6 +993,8 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
         if use_mask_local_crop:
             kwargs.setdefault('num_global_crops', 1)
             kwargs.setdefault('num_local_crops', 1)
+        # Source-conditional by default for alpha edit GAN.
+        kwargs.setdefault('condition_on_source', True)
         super().__init__(*args, **kwargs)
         self.use_mask_local_crop = bool(use_mask_local_crop)
         self.p_disable_local = float(p_disable_local)
@@ -892,10 +1079,16 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
         if local_enabled is None:
             return torch.ones(batch_size, device=device, dtype=torch.bool)
         local_enabled = local_enabled.to(device=device, dtype=torch.bool)
+        mask_fallback = self._last_crop_meta.get('mask_fallback')
+        if mask_fallback is not None:
+            mask_fallback = mask_fallback.to(device=device, dtype=torch.bool)
+        else:
+            mask_fallback = torch.zeros(batch_size, device=device, dtype=torch.bool)
         if branch == 'random_local':
-            return ~local_enabled
+            # Case A, or Case B after mask-guided crop failed.
+            return (~local_enabled) | mask_fallback
         if branch == 'mask_local':
-            return local_enabled
+            return local_enabled & (~mask_fallback)
         return torch.ones(batch_size, device=device, dtype=torch.bool)
 
     def _weighted_gan_loss(
@@ -917,7 +1110,23 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
 
         total_loss = logits_fake.new_zeros(())
         total_weight = 0.0
-        log_vars: Dict[str, float] = {}
+        # Always write every branch key so TextLoggerHook does not keep stale
+        # values from a previous iter where that branch was active.
+        mode_tag = 'd' if gan_mode == 'discriminator' else 'g'
+        log_vars: Dict[str, float] = {
+            'dino_gan_global_logits_fake': 0.0,
+            'dino_gan_random_local_logits_fake': 0.0,
+            'dino_gan_mask_local_logits_fake': 0.0,
+            f'loss_{mode_tag}_global': 0.0,
+            f'loss_{mode_tag}_random_local': 0.0,
+            f'loss_{mode_tag}_mask_local': 0.0,
+        }
+        if gan_mode == 'discriminator':
+            log_vars.update({
+                'dino_gan_global_logits_real': 0.0,
+                'dino_gan_random_local_logits_real': 0.0,
+                'dino_gan_mask_local_logits_real': 0.0,
+            })
         branches = (
             (self.CROP_GLOBAL, None, self.gan_global_weight, 'global'),
             (self.CROP_LOCAL, 'random_local', self.gan_random_local_weight, 'random_local'),
@@ -943,8 +1152,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                 if gan_mode == 'discriminator':
                     log_vars[f'dino_gan_{name}_logits_real'] = float(lr.mean())
                 log_vars[f'dino_gan_{name}_logits_fake'] = float(lf.mean())
-                log_vars[f'loss_{"d" if gan_mode == "discriminator" else "g"}_{name}'] = float(
-                    crop_loss.detach())
+                log_vars[f'loss_{mode_tag}_{name}'] = float(crop_loss.detach())
 
         if total_weight <= 0:
             if gan_mode == 'discriminator':
@@ -992,7 +1200,19 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
             gan_mode: Optional[str] = None,
             step_indices: Optional[torch.Tensor] = None,
             crop_specs: Optional[Sequence[torch.Tensor]] = None,
-            alpha: Optional[torch.Tensor] = None):
+            alpha: Optional[torch.Tensor] = None,
+            cond_images: Optional[torch.Tensor] = None,
+            source_images: Optional[torch.Tensor] = None):
+        if cond_images is None:
+            cond_images = source_images
+        if self.condition_on_source and cond_images is None and gan_mode is not None:
+            raise ValueError(
+                'DinoAlphaMaskFeatureDiscriminator(condition_on_source=True) requires '
+                'cond_images/source_images for D(x_src, x_target).')
+        if (not self.condition_on_source) and cond_images is not None:
+            cond_images = None
+        cond_detached = None if cond_images is None else cond_images.detach()
+
         if gan_mode == 'discriminator':
             assert real_images is not None and fake_images is not None
             if step_indices is None:
@@ -1006,9 +1226,17 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                     image_height=height,
                     image_width=width)
             logits_real = self.logits_from_pixels(
-                real_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
+                real_images.detach(),
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=False,
+                cond_images=cond_detached)
             logits_fake = self.logits_from_pixels(
-                fake_images.detach(), step_indices, crop_specs=crop_specs, requires_input_grad=False)
+                fake_images.detach(),
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=False,
+                cond_images=cond_detached)
             loss_d, extra = self._weighted_gan_loss(
                 logits_real, logits_fake, gan_mode='discriminator')
             if self._last_crop_meta is not None:
@@ -1032,7 +1260,11 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                     image_height=height,
                     image_width=width)
             logits_fake = self.logits_from_pixels(
-                fake_images, step_indices, crop_specs=crop_specs, requires_input_grad=True)
+                fake_images,
+                step_indices,
+                crop_specs=crop_specs,
+                requires_input_grad=True,
+                cond_images=cond_detached)
             loss_g, extra = self._weighted_gan_loss(
                 logits_fake, logits_fake, gan_mode='generator')
             self._last_gan_extra = extra
@@ -1044,4 +1276,8 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
         if step_indices is None:
             step_indices = self.make_step_indices(images.shape[0], images.device)
         return self.logits_from_pixels(
-            images, step_indices, crop_specs=crop_specs, requires_input_grad=False)
+            images,
+            step_indices,
+            crop_specs=crop_specs,
+            requires_input_grad=False,
+            cond_images=cond_detached)

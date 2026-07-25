@@ -122,6 +122,24 @@ def parse_args() -> argparse.Namespace:
             "{src.png,pred.png,prompt.txt} alongside flat scoring pngs."
         ),
     )
+    p.add_argument(
+        "--mixture_reduce",
+        type=str,
+        default=os.environ.get("STUDENT_MIXTURE_REDUCE", "mean"),
+        choices=("mean", "mode"),
+        help=(
+            "How to reduce the K-Gaussian residual mixture at inference. "
+            "'mean' = weighted sum (default); 'mode' = argmax component only."
+        ),
+    )
+    p.add_argument(
+        "--dump_mixture_stats",
+        action="store_true",
+        help=(
+            "For student runs, write per-image K mixture weight stats under "
+            "mixture_stats/{key}.txt (and case folder if enabled)."
+        ),
+    )
     p.add_argument("--check_only", action="store_true", help="Only report suite completeness.")
     return p.parse_args()
 
@@ -443,6 +461,30 @@ def run_one_qwen(
     return out.images[0]
 
 
+def get_student_diffusion(model):
+    """Return the diffusion module used at inference (EMA if present)."""
+    if model is None:
+        return None
+    if getattr(model, "diffusion_use_ema", False) and hasattr(model, "diffusion_ema"):
+        return model.diffusion_ema
+    if hasattr(model, "diffusion"):
+        return model.diffusion
+    if hasattr(model, "diffusion_ema"):
+        return model.diffusion_ema
+    return None
+
+
+def get_student_mixture_stats(model) -> Optional[List[Dict]]:
+    """Read mixture weight stats collected by the last student forward_test."""
+    diffusion = get_student_diffusion(model)
+    if diffusion is None:
+        return None
+    stats = getattr(diffusion, "_last_mixture_stats", None)
+    if stats is None:
+        return None
+    return list(stats)
+
+
 @torch.inference_mode()
 def run_one_student(
     model,
@@ -452,6 +494,8 @@ def run_one_student(
     guidance_scale: float,
     seed: int,
     device: str,
+    mixture_reduce: str = "mean",
+    dump_mixture_stats: bool = False,
 ) -> Image.Image:
     image = preprocess_image_for_student(image)
     source = pil_to_tensor(image).to(device)
@@ -473,9 +517,63 @@ def run_one_student(
         "nfe": num_inference_steps,
         "distilled_guidance_scale": guidance_scale,
         "guidance_scale": 1.0,
+        "mixture_reduce": mixture_reduce,
+        "dump_mixture_stats": dump_mixture_stats,
     }
+    # Also pin flags on the diffusion module — more reliable than test_cfg alone.
+    diffusion = get_student_diffusion(model)
+    if diffusion is not None:
+        object.__setattr__(diffusion, "_dump_mixture_stats", bool(dump_mixture_stats))
+        object.__setattr__(diffusion, "_mixture_reduce", str(mixture_reduce))
+        object.__setattr__(diffusion, "_last_mixture_stats", None)
+
     outputs = model.val_step(data, test_cfg_override=test_cfg_override)
     return tensor_to_pil(outputs["pred_imgs"][0])
+
+
+def format_mixture_stats_txt(sample_key: str, steps: List[Dict]) -> str:
+    lines = [
+        f"# mixture weight stats  key={sample_key}",
+        f"# num_steps={len(steps)}",
+        "",
+    ]
+    for step in steps:
+        k = int(step.get("num_gaussians", len(step.get("mean_weights", []))))
+        mean_w = step.get("mean_weights", [])
+        mode_f = step.get("mode_frac", [])
+        mode_c = step.get("mode_counts", [])
+        lines.append(f"## step {step.get('step')}")
+        lines.append(f"dominant_k: {step.get('dominant_k')}")
+        lines.append(f"mean_weight_entropy: {step.get('mean_weight_entropy'):.6f}")
+        lines.append("k\tmean_weight\tmode_frac\tmode_count")
+        for i in range(k):
+            lines.append(
+                f"{i}\t{mean_w[i]:.6f}\t{mode_f[i]:.6f}\t{mode_c[i]}"
+            )
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def write_mixture_stats_files(
+    output_dir: Path,
+    sample_key: str,
+    steps: List[Dict],
+    case_dir: Optional[Path] = None,
+) -> Path:
+    stats_dir = output_dir / "mixture_stats"
+    stats_dir.mkdir(parents=True, exist_ok=True)
+    txt_path = stats_dir / f"{sample_key}.txt"
+    txt = format_mixture_stats_txt(sample_key, steps)
+    txt_path.write_text(txt, encoding="utf-8")
+    json_path = stats_dir / f"{sample_key}.json"
+    json_path.write_text(
+        json.dumps({"key": sample_key, "steps": steps}, indent=2),
+        encoding="utf-8",
+    )
+    if case_dir is not None:
+        case_dir.mkdir(parents=True, exist_ok=True)
+        (case_dir / "mixture_weights.txt").write_text(txt, encoding="utf-8")
+    return txt_path
 
 
 def run_one(
@@ -487,6 +585,8 @@ def run_one(
     guidance_scale: float,
     seed: int,
     device: str,
+    mixture_reduce: str = "mean",
+    dump_mixture_stats: bool = False,
 ) -> Image.Image:
     if role == "teacher":
         return run_one_teacher(
@@ -498,7 +598,9 @@ def run_one(
         return run_one_qwen(
             runner, image, prompt, num_inference_steps, guidance_scale, seed)
     return run_one_student(
-        runner, image, prompt, num_inference_steps, guidance_scale, seed, device)
+        runner, image, prompt, num_inference_steps, guidance_scale, seed, device,
+        mixture_reduce=mixture_reduce,
+        dump_mixture_stats=dump_mixture_stats)
 
 
 def run_multiturn_chain(
@@ -512,6 +614,8 @@ def run_multiturn_chain(
     seed: int,
     skip_existing: bool,
     device: str,
+    mixture_reduce: str = "mean",
+    dump_mixture_stats: bool = False,
 ) -> None:
     current = source
     for turn_idx, (prompt, out_path) in enumerate(zip(prompts, out_paths), start=1):
@@ -528,6 +632,8 @@ def run_multiturn_chain(
             guidance_scale=guidance_scale,
             seed=seed + turn_idx,
             device=device,
+            mixture_reduce=mixture_reduce,
+            dump_mixture_stats=dump_mixture_stats,
         )
         current.save(out_path)
 
@@ -567,6 +673,8 @@ def process_tasks(
     device: str,
     desc: str,
     write_case_bundles: bool = False,
+    mixture_reduce: str = "mean",
+    dump_mixture_stats: bool = False,
 ) -> Dict[str, Dict]:
     manifest: Dict[str, Dict] = {}
     for task_key, item in tqdm(tasks, desc=desc):
@@ -578,9 +686,11 @@ def process_tasks(
             if write_case_bundles and suite_name == "basic"
             else None
         )
+        stats_path = output_dir / "mixture_stats" / f"{sample_key}.txt"
         score_ready = all(p.is_file() for p in abs_paths)
         case_ready = case_dir is None or case_bundle_ready(case_dir)
-        if skip_existing and score_ready and case_ready:
+        stats_ready = (not dump_mixture_stats) or stats_path.is_file()
+        if skip_existing and score_ready and case_ready and stats_ready:
             continue
 
         src_path = resolve_source_path(bench_root, item, task_key)
@@ -597,6 +707,7 @@ def process_tasks(
             )
         image = Image.open(src_path).convert("RGB")
 
+        ran_model = False
         if suite_name == "multiturn":
             run_multiturn_chain(
                 runner,
@@ -609,7 +720,10 @@ def process_tasks(
                 seed=task_seed,
                 skip_existing=skip_existing,
                 device=device,
+                mixture_reduce=mixture_reduce,
+                dump_mixture_stats=dump_mixture_stats,
             )
+            ran_model = True
         else:
             abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
             # Prefer rebuilding the flat score png from an existing case bundle.
@@ -619,7 +733,9 @@ def process_tasks(
                 and case_bundle_ready(case_dir)
             ):
                 shutil.copy2(case_dir / "pred.png", abs_paths[0])
-            if not abs_paths[0].is_file():
+            if not abs_paths[0].is_file() or (
+                dump_mixture_stats and role == "student" and not stats_path.is_file()
+            ):
                 result = run_one(
                     runner,
                     role,
@@ -629,13 +745,29 @@ def process_tasks(
                     guidance_scale=guidance_scale,
                     seed=task_seed,
                     device=device,
+                    mixture_reduce=mixture_reduce,
+                    dump_mixture_stats=dump_mixture_stats,
                 )
                 result.save(abs_paths[0])
+                ran_model = True
             else:
                 result = Image.open(abs_paths[0]).convert("RGB")
             if case_dir is not None:
                 write_basic_case_bundle(
                     case_dir, image, result, item.get("prompt", ""))
+
+        mixture_stats_file = None
+        if dump_mixture_stats and role == "student" and ran_model:
+            steps = get_student_mixture_stats(runner)
+            if steps:
+                mixture_stats_file = str(
+                    write_mixture_stats_files(
+                        output_dir, sample_key, steps, case_dir=case_dir))
+            else:
+                print(
+                    f"[warn] dump_mixture_stats enabled but no stats for key={sample_key}; "
+                    f"diffusion={type(get_student_diffusion(runner)).__name__ if get_student_diffusion(runner) else None}"
+                )
 
         manifest[task_key] = {
             "suite": suite_name,
@@ -646,8 +778,63 @@ def process_tasks(
             "outputs": [str(p) for p in abs_paths],
             "case_dir": str(case_dir) if case_dir is not None else None,
             "edit_type": item.get("edit_type"),
+            "mixture_reduce": mixture_reduce,
+            "mixture_stats": mixture_stats_file,
         }
+    if dump_mixture_stats and role == "student":
+        _write_mixture_stats_summary(output_dir)
     return manifest
+
+
+def _write_mixture_stats_summary(output_dir: Path) -> None:
+    """Aggregate per-image mixture json into a short distribution summary."""
+    stats_dir = output_dir / "mixture_stats"
+    if not stats_dir.is_dir():
+        return
+    json_files = sorted(stats_dir.glob("*.json"))
+    if not json_files:
+        return
+    # Aggregate final-step dominant_k and mean_weights across images.
+    k_hist: Dict[int, int] = {}
+    sum_mean: Optional[List[float]] = None
+    n = 0
+    for jf in json_files:
+        try:
+            payload = json.loads(jf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        steps = payload.get("steps") or []
+        if not steps:
+            continue
+        step = steps[-1]
+        dk = int(step.get("dominant_k", -1))
+        k_hist[dk] = k_hist.get(dk, 0) + 1
+        mw = [float(x) for x in step.get("mean_weights", [])]
+        if not mw:
+            continue
+        if sum_mean is None:
+            sum_mean = [0.0] * len(mw)
+        if len(mw) != len(sum_mean):
+            continue
+        for i, v in enumerate(mw):
+            sum_mean[i] += v
+        n += 1
+    lines = [
+        "# mixture_stats summary (final NFE step across images)",
+        f"num_images_with_stats: {n}",
+        "",
+        "## dominant_k histogram (which component wins most pixels)",
+    ]
+    for k in sorted(k_hist):
+        lines.append(f"k={k}: {k_hist[k]}")
+    if sum_mean and n > 0:
+        lines.append("")
+        lines.append("## average mean_weights over images")
+        lines.append("k\tavg_mean_weight")
+        for i, v in enumerate(sum_mean):
+            lines.append(f"{i}\t{v / n:.6f}")
+    out = stats_dir / "summary.txt"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) -> None:
@@ -681,6 +868,8 @@ def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) 
         device,
         desc=f"GPU {gpu_id}",
         write_case_bundles=worker_cfg.get("write_case_bundles", False),
+        mixture_reduce=worker_cfg.get("mixture_reduce", "mean"),
+        dump_mixture_stats=worker_cfg.get("dump_mixture_stats", False),
     )
     part_path = Path(worker_cfg["output_dir"]) / f"manifest.gpu{gpu_id}.json"
     part_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -719,6 +908,8 @@ def run_parallel_inference(
         "skip_existing": args.skip_existing,
         "cpu_offload": args.cpu_offload,
         "write_case_bundles": bool(getattr(args, "write_case_bundles", False)),
+        "mixture_reduce": str(getattr(args, "mixture_reduce", "mean")),
+        "dump_mixture_stats": bool(getattr(args, "dump_mixture_stats", False)),
     }
     if len(buckets) == 1:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_ids[0])
@@ -744,6 +935,8 @@ def run_parallel_inference(
             device,
             desc=f"ImgEdit {args.role}/{args.suite}",
             write_case_bundles=worker_cfg["write_case_bundles"],
+            mixture_reduce=worker_cfg["mixture_reduce"],
+            dump_mixture_stats=worker_cfg["dump_mixture_stats"],
         )
 
     ctx = mp.get_context("spawn")
@@ -825,6 +1018,9 @@ def main() -> None:
             args.skip_existing,
             device,
             desc=f"ImgEdit {args.role}/{args.suite}",
+            write_case_bundles=bool(getattr(args, "write_case_bundles", False)),
+            mixture_reduce=str(getattr(args, "mixture_reduce", "mean")),
+            dump_mixture_stats=bool(getattr(args, "dump_mixture_stats", False)),
         )
         manifest.update(new_manifest)
 

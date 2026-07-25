@@ -112,3 +112,16 @@ class ArcFlowEditNewPolicy(BasePolicy):
     def temperature(self, temp):
         new_policy = self.copy()
         return new_policy.temperature_(temp)
+
+    def mode_(self):
+        """Keep only the argmax mixture component (per spatial weight map)."""
+        logweights = self.denoising_output_x_0['logweights']
+        max_idx = logweights.argmax(dim=1, keepdim=True)
+        mode_logweights = torch.full_like(logweights, float('-inf'))
+        mode_logweights.scatter_(1, max_idx, 0.0)
+        self.denoising_output_x_0['logweights'] = mode_logweights
+        return self
+
+    def mode(self):
+        new_policy = self.copy()
+        return new_policy.mode_()

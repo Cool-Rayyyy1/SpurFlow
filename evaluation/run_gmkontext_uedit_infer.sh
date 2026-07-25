@@ -57,6 +57,8 @@ SCORE_ONLY="${SCORE_ONLY:-0}"
 SKIP_STUDENT_GEN="${SKIP_STUDENT_GEN:-0}"
 BUILD_COMPARISONS="${BUILD_COMPARISONS:-1}"
 WRITE_CASE_BUNDLES="${WRITE_CASE_BUNDLES:-0}"
+STUDENT_MIXTURE_REDUCE="${STUDENT_MIXTURE_REDUCE:-mean}"
+DUMP_MIXTURE_STATS="${DUMP_MIXTURE_STATS:-0}"
 CPU_OFFLOAD="${CPU_OFFLOAD:-0}"
 NUM_PROCESSES="${NUM_PROCESSES:-64}"
 FORCE_SCORE="${FORCE_SCORE:-0}"
@@ -132,6 +134,8 @@ write_run_config() {
     echo "COMPARISONS:     ${COMPARISON_OUTPUT}"
     echo "BUILD_COMPARISONS:${BUILD_COMPARISONS}"
     echo "WRITE_CASE_BUNDLES:${WRITE_CASE_BUNDLES}"
+    echo "STUDENT_MIXTURE_REDUCE:${STUDENT_MIXTURE_REDUCE}"
+    echo "DUMP_MIXTURE_STATS:${DUMP_MIXTURE_STATS}"
     echo "GEN_ONLY:        ${GEN_ONLY}"
     echo "SKIP_STUDENT_GEN:${SKIP_STUDENT_GEN}"
     echo "NUM_PROCESSES:   ${NUM_PROCESSES}"
@@ -169,6 +173,12 @@ run_student_generation() {
   fi
   if [[ "${WRITE_CASE_BUNDLES}" == "1" ]]; then
     cmd+=(--write_case_bundles)
+  fi
+  if [[ -n "${STUDENT_MIXTURE_REDUCE}" ]]; then
+    cmd+=(--mixture_reduce "${STUDENT_MIXTURE_REDUCE}")
+  fi
+  if [[ "${DUMP_MIXTURE_STATS}" == "1" ]]; then
+    cmd+=(--dump_mixture_stats)
   fi
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
@@ -266,6 +276,9 @@ echo "  run folder:      ${RUN_OUTPUT_ROOT}"
 echo "  student outputs: ${STUDENT_OUTPUT}"
 if [[ "${WRITE_CASE_BUNDLES}" == "1" ]]; then
   echo "  basic cases:     ${STUDENT_OUTPUT}/basic/{Action,Add,...}/<key>/{src,pred,prompt}"
+fi
+if [[ "${DUMP_MIXTURE_STATS}" == "1" ]]; then
+  echo "  mixture stats:   ${STUDENT_OUTPUT}/mixture_stats/{key}.txt"
 fi
 echo "  comparisons:     ${COMPARISON_OUTPUT}"
 if [[ "${GEN_ONLY}" != "1" ]]; then

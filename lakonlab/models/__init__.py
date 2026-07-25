@@ -18,3 +18,9 @@ from .latent_diffusion_image_edit_lpips import LatentDiffusionImageEditAlphaLpip
 from .latent_diffusion_image_edit_dual_lora_teacher_x0_lpips import (
     LatentDiffusionImageEditDualLoraTeacherX0Lpips,
 )
+from .latent_diffusion_image_edit_step2_dino_gan_lpips import (
+    LatentDiffusionImageEditStep2DinoFeatureGANLpips,
+)
+from .latent_diffusion_image_edit_step2_alpha_x0_hf import (
+    LatentDiffusionImageEditStep2AlphaX0HF,
+)
