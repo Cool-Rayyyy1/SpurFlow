@@ -10,9 +10,6 @@
 # Uses editflux_uedit_fixedeps_2nfe_k16_data.py (ArcFlowEditImitation standard 2-NFE val_step),
 # which matches step2_dino_gan training validation (Step2GAN val_step -> same 2-NFE forward_test).
 #
-# Do NOT use run_gmkontext_uedit_infer.sh for this checkpoint — that script defaults to
-# editflux_uedit_2nfe_k16_data.py (ArcFluxEditTransformer2DModel with proj_out_epsilon).
-#
 # Usage:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
 #   CKPT=/path/to/iter_6000.pth bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh

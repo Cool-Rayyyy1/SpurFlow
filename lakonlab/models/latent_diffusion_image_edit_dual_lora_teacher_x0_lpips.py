@@ -2,8 +2,7 @@
 
 """Dual-LoRA teacher-x0 + step-1-only LPIPS/DINO.
 
-Own wrapper for ``ArcFlowEditImitationSplitStageDualLoraTeacherX0`` so it does
-not share ``LatentDiffusionImageEditAlphaLpips`` with the alpha LPIPS run.
+Own wrapper for ``ArcFlowEditImitationSplitStageDualLoraTeacherX0``.
 """
 
 import torch

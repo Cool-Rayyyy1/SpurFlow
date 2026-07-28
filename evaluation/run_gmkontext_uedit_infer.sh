@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# ImgEdit-Bench student inference for gmkontext_uedit (4-head + epsilon in proj).
-#
-# Uses:
-#   CONFIG=configs/kontext/editflux_uedit_2nfe_k16_data.py
-#   CKPT=checkpoints/gmkontext_uedit_k16_2nfe_pico400k/.../iter_5000.pth
-#
-# For fixedeps (NO proj_out_epsilon), use:
+# ImgEdit-Bench shared student inference entrypoint.
+# Prefer the fixedeps / variant wrappers (they set CONFIG/CKPT/RUN_NAME), e.g.:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_infer.sh
-#
-# For fixedeps split-stage (ArcFlowEditImitationSplitStage), use:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_split_stage_infer.sh
+#
+# Default below is fixedeps (3-head, no proj_out_epsilon). Override via env.
 #
 # Teacher generation is skipped. Comparison panels use an existing teacher run
 # (default: 20260610_011516_iter_5000) plus this student output.
@@ -40,9 +35,9 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 NUM_GPUS="${NUM_GPUS:-1}"
 export NUM_GPUS
 
-RUN_NAME="${RUN_NAME:-gmkontext_uedit_k16_2nfe_pico400k}"
-CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_2nfe_k16_data.py}"
-CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_k16_2nfe_pico400k/20260612_145638/iter_5000.pth}"
+RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_k16_2nfe_pico400k}"
+CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_data.py}"
+CKPT="${CKPT:-${EDITFLOW_DIR}/checkpoints/gmkontext_uedit_fixedeps_k16_2nfe_pico400k/latest.pth}"
 RUN_TAG="${RUN_TAG:-${RUN_NAME}_$(basename "${CKPT}" .pth)}"
 REF_TEACHER_OUTPUT="${REF_TEACHER_OUTPUT:-${EVAL_DIR}/outputs/runs/20260610_011516_iter_5000/teacher}"
 

@@ -506,6 +506,7 @@ def load_checkpoint(model: torch.nn.Module,
                     strict: bool = False,
                     logger: Optional[logging.Logger] = None,
                     revise_keys: list = [(r'^module\.', '')],
+                    ignore_key_prefixes: Optional[Sequence[str]] = None,
                     assign: bool = False) -> Union[dict, OrderedDict]:
     checkpoint = _load_checkpoint(filename, map_location, logger)
     # OrderedDict is a subclass of dict
@@ -524,6 +525,18 @@ def load_checkpoint(model: torch.nn.Module,
         state_dict = OrderedDict(
             {re.sub(p, r, k): v
              for k, v in state_dict.items()})
+    # Drop incompatible modules (e.g. old unconditional D head vs source-cond 2x ch).
+    if ignore_key_prefixes:
+        prefixes = tuple(str(p) for p in ignore_key_prefixes)
+        kept = OrderedDict(
+            (k, v) for k, v in state_dict.items()
+            if not any(k.startswith(p) for p in prefixes))
+        dropped = len(state_dict) - len(kept)
+        state_dict = kept
+        if logger is not None and dropped > 0:
+            logger.info(
+                'Ignored %d checkpoint keys with prefixes %s',
+                dropped, list(prefixes))
     # Keep metadata in state_dict
     state_dict._metadata = metadata
 

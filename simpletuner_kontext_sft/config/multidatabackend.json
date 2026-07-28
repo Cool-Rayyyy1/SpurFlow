@@ -1,0 +1,89 @@
+[
+  {
+    "id": "pico-banana-edit",
+    "type": "local",
+    "dataset_type": "image",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/train/edit",
+    "conditioning_data": [
+      "pico-banana-reference"
+    ],
+    "caption_strategy": "textfile",
+    "resolution": 1024,
+    "resolution_type": "pixel_area",
+    "minimum_image_size": 512,
+    "maximum_image_size": 2048,
+    "target_downsample_size": 1024,
+    "crop": true,
+    "crop_style": "random",
+    "crop_aspect": "square",
+    "cache_dir_vae": "/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit",
+    "vae_cache_clear_each_epoch": false,
+    "probability": 1.0,
+    "repeats": 0,
+    "vae_cache_ondemand": true
+  },
+  {
+    "id": "pico-banana-reference",
+    "type": "local",
+    "dataset_type": "conditioning",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/train/reference",
+    "conditioning_type": "reference_strict",
+    "caption_strategy": null,
+    "resolution": 1024,
+    "resolution_type": "pixel_area",
+    "minimum_image_size": 512,
+    "maximum_image_size": 2048,
+    "target_downsample_size": 1024,
+    "cache_dir_vae": "/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference",
+    "vae_cache_clear_each_epoch": false,
+    "vae_cache_ondemand": true
+  },
+  {
+    "id": "pico-banana-edit-val",
+    "type": "local",
+    "dataset_type": "image",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/val/edit",
+    "conditioning_data": [
+      "pico-banana-reference-val"
+    ],
+    "caption_strategy": "textfile",
+    "resolution": 1024,
+    "resolution_type": "pixel_area",
+    "minimum_image_size": 512,
+    "maximum_image_size": 2048,
+    "target_downsample_size": 1024,
+    "crop": true,
+    "crop_style": "center",
+    "crop_aspect": "square",
+    "cache_dir_vae": "/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit_val",
+    "vae_cache_clear_each_epoch": false,
+    "probability": 0.0,
+    "repeats": 0,
+    "disabled": false,
+    "vae_cache_ondemand": true
+  },
+  {
+    "id": "pico-banana-reference-val",
+    "type": "local",
+    "dataset_type": "conditioning",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/val/reference",
+    "conditioning_type": "reference_strict",
+    "caption_strategy": null,
+    "resolution": 1024,
+    "resolution_type": "pixel_area",
+    "minimum_image_size": 512,
+    "maximum_image_size": 2048,
+    "target_downsample_size": 1024,
+    "cache_dir_vae": "/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference_val",
+    "vae_cache_clear_each_epoch": false,
+    "vae_cache_ondemand": true
+  },
+  {
+    "id": "pico-banana-text-embeds",
+    "dataset_type": "text_embeds",
+    "default": true,
+    "type": "local",
+    "cache_dir": "/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text",
+    "text_cache_ondemand": true
+  }
+]

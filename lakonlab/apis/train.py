@@ -184,11 +184,15 @@ def train_model(model,
     if distributed and module_wrapper.lower() in ['fsdp', 'fsdp2']:
         ckpt_kwargs.update(map_location='cpu')
     if exists_ckpt(cfg.resume_from):
+        # Resume keeps full state (including discriminator); do not drop keys.
         runner.resume(cfg.resume_from, resume_optimizer=False, **ckpt_kwargs)
         for data_loader in data_loaders:
             data_loader.sampler.set_epoch(runner.epoch)
             data_loader.sampler.set_iter(runner.iter)
     elif exists_ckpt(cfg.load_from):
+        ignore_key_prefixes = cfg.get('load_ignore_key_prefixes', None)
+        if ignore_key_prefixes:
+            ckpt_kwargs['ignore_key_prefixes'] = list(ignore_key_prefixes)
         runner.load_checkpoint(cfg.load_from, **ckpt_kwargs)
 
     runner.run(data_loaders, cfg.workflow, cfg.total_iters)

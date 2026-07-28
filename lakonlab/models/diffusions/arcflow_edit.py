@@ -623,13 +623,16 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         loss = loss + w_teacher * loss_step2_teacher + w_diff * loss_step2_diff
 
         step2_latent = None
-        if gan_loss_scale > 0:
+        step2_alpha = None
+        if gan_loss_scale > 0 or return_step2_latent:
             raw_t_final = raw_t_step2 - final_step_size
             # Reuse PIID step-2 policy; integrate to t=0 for GAN decode (no second pred).
             # With gan_grad_step2_only, detach the integration-state input. Note this
             # only cuts the additive x_t path: policy_step2 itself was predicted from
             # the non-detached x_t_step2, so GAN grads still reach step-1 through the
             # network input (same chaining path as the step-2 PIID/direct losses).
+            # With gan_grad_step2_only=False, the integration state stays live so GAN
+            # grads also flow through the step-1 -> step-2 state transition.
             x_t_gan_in = (
                 x_t_step2.detach()
                 if self.train_cfg.get('gan_grad_step2_only', True)
@@ -637,6 +640,8 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
             step2_latent, _, _ = self.momentum_integration(
                 sigma_t_step2, x_t_gan_in, sigma_t_step2, raw_t_final,
                 policy_step2, eps=policy_eps, seq_len=seq_len)
+            if hasattr(policy_step2, 'alpha'):
+                step2_alpha = policy_step2.alpha
 
         log_vars.update(self.flow_loss.log_vars)
         log_vars.update(
@@ -647,7 +652,8 @@ class ArcFlowEditImitationSplitStageGAN(ArcFlowEditImitationSplitStage):
         )
 
         if return_step2_latent:
-            return loss, log_vars, dict(step2_latent=step2_latent)
+            return loss, log_vars, dict(
+                step2_latent=step2_latent, step2_alpha=step2_alpha)
         return loss, log_vars
 
 
@@ -1571,6 +1577,7 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
             # Roll out endpoint when any endpoint loss is active (GAN / x0 / HF).
             need_endpoint = (
                 gan_scale > 0
+                or float(self.train_cfg.get('split_stage_gan_loss_weight', 0.0)) > 0
                 or float(self.train_cfg.get('x0_loss_weight', 0.0)) > 0
                 or float(self.train_cfg.get('hf_loss_weight', 0.0)) > 0
                 or float(self.train_cfg.get('lpips_loss_weight', 0.0)) > 0

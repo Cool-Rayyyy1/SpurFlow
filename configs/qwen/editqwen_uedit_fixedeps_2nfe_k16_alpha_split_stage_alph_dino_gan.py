@@ -1,68 +1,67 @@
-_base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
+_base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_step2_dino_gan_lpips_sharp.sh`
-# Source-conditional local-refinement step2 DINO-GAN from iter_5500:
-#   D(x_src, x_gt_edit) -> 1
-#   D(x_src, x_student) -> 0
-#   L = L_distill + λ_gan L_gan  (LPIPS off by default)
-#   local / patch DINO crops only (no full-frame global view)
-name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_dino_gan_srccond_local'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
-kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
+# `train_flux_edit_fixedeps_alpha_data_qwen_alph_dino_gan.sh`
+# Qwen-Image-Edit alpha + split-stage PIID + source-cond alpha-mask DINO GAN.
+# Same GAN recipe as Flux alph_dino_gan:
+#   DinoAlphaMaskFeatureDiscriminator, condition_on_source,
+#   cat([DINO(ref), DINO(target)]), alpha-mask local crop from step-2 alpha,
+#   gan_weight=0.05, gan_grad_step2_only=False (grads through both NFE steps).
+# Distillation is split-stage so the 2-NFE unroll is shared with GAN (no extra
+# independent rollout for the fake endpoint).
+name = 'gmqwen_uedit_fixedeps_alpha_k16_2nfe_pico400k_split_stage_alph_dino_gan'
+qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
-lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
-lpips_vgg16 = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'
 
 model = dict(
-    type='LatentDiffusionImageEditStep2DinoFeatureGANLpips',
+    type='LatentDiffusionQwenImageEditAlphaSplitStageDinoGAN',
     vae=dict(
-        type='PretrainedVAE',
-        from_pretrained=kontext_model,
+        type='PretrainedVAEQwenImage',
+        from_pretrained=qwen_model,
         subfolder='vae',
         freeze=True,
+        use_slicing=True,
         torch_dtype='bfloat16'),
-    lpips=dict(
-        weights_path=lpips_weights,
-        vgg_weights_path=lpips_vgg16,
-        spatial=False),
     diffusion=dict(
-        type='ArcFlowEditImitationStep2GAN',
-        policy_type='ArcFlowEdit',
+        type='ArcFlowEditImitationSplitStageGAN',
+        policy_type='ArcFlowEditNewAlpha',
         denoising=dict(
-            type='ArcFluxEditNewTransformer2DModel',
+            type='ArcQwenEditAlphaImageTransformer2DModel',
             patch_size=2,
             freeze=True,
             freeze_exclude=[
                 'proj_out_deltax',
                 'proj_out_logweights',
                 'proj_out_loggamma',
+                'proj_out_alpha',
                 'norm_out',
                 'lora'],
             inherit_proj_out_deltax=False,
             deltax_init='kaiming',
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             num_gaussians=16,
             logweights_channels=4,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16',
             checkpointing=True,
             use_lora=True,
             lora_target_modules=[
-                'proj_mlp',
-                'proj_out',
-                'ff.net.0.proj',
-                'ff.net.2',
-                'ff_context.net.0.proj',
-                'ff_context.net.2',
+                'img_mlp.net.0.proj',
+                'img_mlp.net.2',
                 'timestep_embedder.linear_1',
-                'timestep_embedder.linear_2'],
+                'timestep_embedder.linear_2'
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.0.proj' for i in range(59)
+            ] + [
+                f'transformer_blocks.{i}.txt_mlp.net.2' for i in range(59)
+            ],
             lora_dropout=0.05,
             lora_rank=256),
         flow_loss=dict(
@@ -73,41 +72,44 @@ model = dict(
         num_timesteps=1,
         timestep_sampler=dict(
             type='ContinuousTimeStepSampler',
-            shift=3.2,
+            use_dynamic_shifting=True,
+            base_seq_len=1024,
+            max_seq_len=32768,
+            base_logshift=0.5,
+            max_logshift=0.9,
             logit_normal_enable=False),
         denoising_mean_mode='U'),
     diffusion_use_ema=True,
     teacher=dict(
         type='GaussianFlow',
         denoising=dict(
-            type='FluxTransformer2DModel',
+            type='QwenImageEditTransformer2DModel',
             patch_size=2,
             freeze=True,
-            pretrained=kontext_transformer,
+            pretrained=qwen_transformer,
             in_channels=64,
-            num_layers=19,
-            num_single_layers=38,
+            out_channels=64,
+            num_layers=60,
             attention_head_dim=128,
             num_attention_heads=24,
-            joint_attention_dim=4096,
-            pooled_projection_dim=768,
-            guidance_embeds=True,
+            joint_attention_dim=3584,
+            axes_dims_rope=(16, 56, 56),
+            zero_cond_t=True,
             torch_dtype='bfloat16'),
         num_timesteps=1,
         denoising_mean_mode='U'),
     tie_teacher=True,
     discriminator=dict(
-        type='DinoFeatureDiscriminator',
+        type='DinoAlphaMaskFeatureDiscriminator',
         checkpoint_path=dinov3_model,
         num_steps=2,
         feature_layers=(23,),
         global_input_size=224,
         local_input_size=224,
-        # No full-frame crop: local patches only (texture / edges / HF).
-        num_global_crops=0,
-        num_local_crops=4,
+        num_global_crops=1,
+        num_local_crops=1,
         global_crop_scale=(0.5, 1.0),
-        local_crop_scale=(0.08, 0.35),
+        local_crop_scale=(0.125, 0.5),
         crop_aspect_ratio=(0.75, 1.3333333333),
         clamp_pixels=True,
         step_conditioning=False,
@@ -115,15 +117,28 @@ model = dict(
         head_use_avgpool=False,
         head_gradient_checkpointing=True,
         head_norm_groups=32,
-        # Patch-token scores instead of one pooled logit per crop.
-        dense_output=True,
-        # Pair discriminator: concat [src, target] DINO features.
-        condition_on_source=True,
-        gan_global_weight=0.0,
-        gan_local_weight=1.0,
+        dense_output=False,
         backbone_dtype='bf16',
         head_dtype='fp32',
-        freeze_backbone=True),
+        freeze_backbone=True,
+        condition_on_source=True,
+        use_mask_local_crop=True,
+        p_disable_local=0.0,
+        edit_is_low_alpha=True,
+        alpha_smooth_sigma=2.0,
+        mass_threshold_percentile=30.0,
+        mass_coverage_min=0.85,
+        mass_coverage_max=0.90,
+        hot_mass_frac=0.40,
+        union_area_max_ratio=0.35,
+        bbox_expand_factor=1.1,
+        min_crop_area_ratio=0.01,
+        max_crop_area_ratio=0.35,
+        min_edit_mass_ratio=0.002,
+        min_component_pixels=16,
+        gan_global_weight=1.0,
+        gan_random_local_weight=1.0,
+        gan_mask_local_weight=1.0),
 )
 
 save_interval = 500
@@ -135,28 +150,29 @@ train_cfg = dict(
     use_edited_x0=True,
     use_uedit=True,
     fixed_path_epsilon=True,
+    split_stage_diffusion_loss_weight=0.5,
+    split_stage_teacher_loss_weight=0.5,
+    split_stage_step2_x_ref_scale=1.0,
     split_stage_gan_warmup_iters=0,
-    # Gentle ramp so distill keeps owning edit direction.
-    split_stage_gan_ramp_iters=500,
+    split_stage_gan_ramp_iters=0,
     split_stage_gan_loss_weight=0.05,
-    gan_grad_step2_only=True,
-    gan_real_key='edited_images',
-    # Off by default: full-image LPIPS also fights content / edit magnitude.
-    lpips_loss_weight=0.0,
-    perceptual_image_size=256,
+    direct_delta_loss_weight=0.0,
+    # GAN grads flow through both NFE steps (do not detach step-1 state).
+    gan_grad_step2_only=False,
+    teacher_guidance_scale=4.0,
+    teacher_negative_prompt=' ',
+    teacher_guidance_norm_rescale=True,
     num_decay_iters=0,
     window_substeps=3,
     gm_dropout=0.1,
     num_intermediate_states=4,
-    distilled_guidance_scale=3.5,
-    teacher_distilled_guidance_scale=3.5,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
 )
 test_cfg = dict(
-    distilled_guidance_scale=3.5,
     fixed_path_epsilon=True,
+    split_stage_step2_x_ref_scale=1.0,
     nfe=2,
     timestep_ratio=1.0,
     total_substeps=128,
@@ -181,17 +197,15 @@ fsdp_kwargs = dict(
     wrap_frozen_modules=True,
     ignore_frozen_parameters=False,
     fsdp_modules=[
-        'diffusers.models.transformers.transformer_flux.FluxTransformerBlock',
-        'diffusers.models.transformers.transformer_flux.FluxSingleTransformerBlock',
+        'diffusers.models.transformers.transformer_qwenimage.QwenImageTransformerBlock',
     ],
-    exclude_keys=['vae', 'discriminator', 'lpips'],
+    exclude_keys=['vae', 'discriminator'],
     tie_key_mappings=['teacher->diffusion', 'teacher->diffusion_ema'],
 )
 
 sample_eval = dict(
     type='EditFlowSampleImagesHook',
     enabled=True,
-    # Fixed ImgEdit-Bench subset for sharper visual check.
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
@@ -203,7 +217,7 @@ sample_eval = dict(
             'extract', 'remove', 'replace', 'style'],
         samples_per_category=5,
         seed=42,
-        resize_mode='kontext',
+        resize_mode='qwen',
     ),
     interval=save_interval,
     must_save_interval=must_save_interval,
@@ -214,8 +228,9 @@ sample_eval = dict(
 
 data = dict(
     workers_per_gpu=1,
-    train=dict(resize_mode='kontext'),
-    val=dict(resize_mode='kontext'),
+    # Paired source/edit only: source-conditional GAN labels D(ref, edit)=1.
+    train=dict(resize_mode='qwen', load_unpaired_edited=False),
+    val=dict(resize_mode='qwen'),
     train_dataloader=dict(samples_per_gpu=1),
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
@@ -226,10 +241,10 @@ checkpoint_config = dict(
     interval=save_interval,
     must_save_interval=must_save_interval,
     by_epoch=False,
-    max_keep_ckpts=2,
+    max_keep_ckpts=1,
     out_dir='checkpoints/')
 
-total_iters = 15000
+total_iters = 50000
 log_config = dict(
     interval=1,
     hooks=[

@@ -161,14 +161,16 @@ class DynamicIterBasedRunnerMod(DynamicIterBasedRunner):
                         filename,
                         map_location='cpu',
                         strict=False,
-                        revise_keys=[(r'^module.', '')]):
+                        revise_keys=[(r'^module.', '')],
+                        ignore_key_prefixes=None):
         return load_checkpoint(
             self.model,
             filename,
             map_location,
             strict,
             self.logger,
-            revise_keys=revise_keys)
+            revise_keys=revise_keys,
+            ignore_key_prefixes=ignore_key_prefixes)
 
     def resume(self,
                checkpoint,

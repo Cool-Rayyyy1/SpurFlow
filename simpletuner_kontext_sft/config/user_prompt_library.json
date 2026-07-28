@@ -1,0 +1,5 @@
+{
+  "warm_tone": "Adjust the overall color tone to be significantly warmer while keeping identity and layout unchanged.",
+  "remove_object": "Remove the main distracting object and naturally fill the background to match lighting and texture.",
+  "change_sky": "Replace the sky with a clear blue sky and match the lighting of the rest of the scene."
+}

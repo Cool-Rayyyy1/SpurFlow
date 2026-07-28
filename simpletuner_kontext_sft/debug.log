@@ -1,0 +1,17 @@
+[RANK 0] 2026-07-28 01:34:49,077 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Attention with flexible fusion (permanent=True)
+[RANK 0] 2026-07-28 01:34:49,170 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Qwen Image prompt padding and attention mask handling for batch size > 1.
+[RANK 0] 2026-07-28 01:34:51,114 [WARNING] (simpletuner.helpers.models.flux.model) Flux.1 requires an alignment value of 64px. Overriding the value of --aspect_bucket_alignment.
+[RANK 0] 2026-07-28 01:34:51,147 [INFO] (simpletuner.helpers.models.common) Loading AutoencoderKL from /mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev
+[RANK 0] 2026-07-28 01:34:53,030 [INFO] (simpletuner.helpers.models.common) Moving AutoencoderKL to accelerator, converting from torch.float32 to torch.bfloat16
+[RANK 0] 2026-07-28 01:34:54,826 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 1: CLIPTokenizer with args: {'subfolder': 'tokenizer', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
+[RANK 0] 2026-07-28 01:34:54,974 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 2: T5Tokenizer with args: {'subfolder': 'tokenizer_2', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
+[RANK 0] 2026-07-28 01:34:55,257 [INFO] (simpletuner.helpers.models.common) Loading CLIP-L/14 text encoder
+[RANK 0] 2026-07-28 01:34:56,969 [INFO] (simpletuner.helpers.models.common) Loading T5 XXL v1.1 text encoder
+[RANK 0] 2026-07-28 01:35:26,358 [INFO] (simpletuner.helpers.training.gpu_circuit_breaker) GPU circuit breaker initialized with 1 GPU(s)
+[RANK 0] 2026-07-28 01:35:26,425 [ERROR] (simpletuner.helpers.training.gpu_circuit_breaker) GPU circuit breaker OPEN: cuda_error - CUDA out of memory. Tried to allocate 80.00 MiB. GPU 0 has a total capacity of 79.25 GiB of which 50.06 MiB is free. Process 1618752 has 4.25 GiB memory in use. Process 1618746 has 4.61 GiB memory in use. Process 1618750 has 4.77 GiB memory in use. Process 1618748 has 4.26 GiB memory in use. Process 2233754 has 55.98 GiB memory in use. Including non-PyTorch memory, this process has 5.30 GiB memory in use. Of the allocated memory 4.88 GiB is allocated by PyTorch, and 15.59 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) (GPU 0)
+[RANK 0] 2026-07-28 01:35:26,425 [INFO] (simpletuner.helpers.models.common) Unloading all model components...
+[RANK 0] 2026-07-28 01:35:26,437 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory before unload: 4.72 GB
+[RANK 0] 2026-07-28 01:35:26,438 [INFO] (simpletuner.helpers.models.common) Text encoder 1: 196 params and 1 buffers on CUDA before move
+[RANK 0] 2026-07-28 01:35:26,441 [INFO] (simpletuner.helpers.models.common) Text encoder 1 successfully moved to meta device
+[RANK 0] 2026-07-28 01:35:26,443 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory after unload: 4.48 GB (freed 0.24 GB)
+[RANK 0] 2026-07-28 01:35:27,638 [INFO] (simpletuner.helpers.models.common) Model components unloaded successfully.
