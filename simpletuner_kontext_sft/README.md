@@ -77,6 +77,17 @@ Caches: `work_dirs/simpletuner_kontext_sft/cache/`
 | `MAX_TRAIN_STEPS` | 10000 | steps |
 | `PAIR_ROOT` | `$DATA_ROOT/simpletuner_pairs` | prepared pairs |
 | `KONTEXT_MODEL` | `.../FLUX.1-Kontext-dev` | local checkpoint |
+| `TEXT_CACHE_ONDEMAND` | `1` | `0` = pre-cache text embeds (faster steps) |
+| `VAE_CACHE_ONDEMAND` | `1` | `0` = pre-cache VAE latents (faster steps) |
+
+Single-GPU smoke:
+
+```bash
+GPU_IDS=0 \
+PAIR_ROOT=/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke \
+MAX_TRAIN_STEPS=50 CKPT_INTERVAL=50 VAL_INTERVAL=50 \
+bash train_flux_kontext_sft_simpletuner.sh 1
+```
 
 ## Disk warning
 

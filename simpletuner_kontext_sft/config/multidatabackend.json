@@ -3,7 +3,7 @@
     "id": "pico-banana-edit",
     "type": "local",
     "dataset_type": "image",
-    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/train/edit",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit",
     "conditioning_data": [
       "pico-banana-reference"
     ],
@@ -26,7 +26,7 @@
     "id": "pico-banana-reference",
     "type": "local",
     "dataset_type": "conditioning",
-    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/train/reference",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference",
     "conditioning_type": "reference_strict",
     "caption_strategy": null,
     "resolution": 1024,
@@ -42,7 +42,7 @@
     "id": "pico-banana-edit-val",
     "type": "local",
     "dataset_type": "image",
-    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/val/edit",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit",
     "conditioning_data": [
       "pico-banana-reference-val"
     ],
@@ -66,7 +66,7 @@
     "id": "pico-banana-reference-val",
     "type": "local",
     "dataset_type": "conditioning",
-    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs_smoke/val/reference",
+    "instance_data_dir": "/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference",
     "conditioning_type": "reference_strict",
     "caption_strategy": null,
     "resolution": 1024,
