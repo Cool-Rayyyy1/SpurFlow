@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""ImgEdit-Bench inference for EditFlow alpha student models.
+"""ImgEdit-Bench inference for EditFlow alpha student models (gen + alpha v6 in one pass).
 
-Scoring still uses flat files:
-  student/basic/{key}.png
-  student/uge/{key}.png
-
-Human-readable basic cases are also written as:
+Basic layout (9 categories, no flat ``basic/{key}.png`` duplicates):
   student/basic/{Action,Add,...}/{key}/
     src.png
-    pred.png
+    edit.png / pred.png   (same edit; pred kept for scoring helpers)
     prompt.txt
+    step{1,2}_{alpha,heatmap,overlay}.png   # alpha v6 continuous maps
 
-Alpha patch visualizations go under alpha_vis/ (NOT used by GPT scoring).
+UGE / multiturn still use flat score paths (no category folders there).
+
+GPT scoring for basic resolves ``Category/{key}/pred.png`` (or edit.png).
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from __future__ import annotations
 import json
 import multiprocessing as mp
 import os
-import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -33,13 +31,16 @@ EDITFLOW_ROOT = EVAL_ROOT.parents[1]
 if str(EDITFLOW_ROOT) not in sys.path:
     sys.path.insert(0, str(EDITFLOW_ROOT))
 
-from alpha_vis import capture_student_alphas, render_alpha_grid_blank  # noqa: E402
+from alpha_vis import (  # noqa: E402
+    capture_student_alphas,
+    render_alpha_grid_blank,
+    render_continuous_alpha_on_src,
+)
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
 from run_editflow_imgedit_infer import (  # noqa: E402
     basic_case_dir,
     build_klein_pipeline,
     build_teacher_pipeline,
-    case_bundle_ready,
     category_dir_name,
     expected_outputs,
     load_tasks,
@@ -55,14 +56,12 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     run_multiturn_chain,
     run_one,
     split_tasks_round_robin,
-    suite_complete,
     tensor_to_pil,
-    write_basic_case_bundle,
 )
 
-ALPHA_VIS_SUBDIR = "alpha_vis"
+HEATMAP_BLEND = float(os.environ.get("HEATMAP_BLEND", "0.36"))
+OVERLAY_BLEND = float(os.environ.get("OVERLAY_BLEND", "0.52"))
 
-# Re-exported for callers; kept here so older scripts keep working.
 BASIC_CATEGORY_DIRS = (
     "Action",
     "Add",
@@ -76,24 +75,97 @@ BASIC_CATEGORY_DIRS = (
 )
 
 
-def alpha_vis_paths(output_dir: Path, rel_score_path: Path, n_steps: int) -> List[Path]:
-    """Map a scoring image path to alpha visualization paths."""
-    rel = rel_score_path.as_posix()
-    if rel.startswith("multiturn/"):
-        return []
-    stem = rel_score_path.stem
-    parent = rel_score_path.parent
-    # Keep alpha_vis flat under suite/ (not under Category/key).
-    if parent.parts and parent.parts[0] == "basic":
-        parent = Path("basic")
-    return [
-        output_dir / ALPHA_VIS_SUBDIR / parent / f"{stem}_alpha_step{step}.png"
-        for step in range(1, n_steps + 1)
+def v6_case_paths(case_dir: Path) -> Dict[str, Path]:
+    return {
+        "prompt": case_dir / "prompt.txt",
+        "src": case_dir / "src.png",
+        "edit": case_dir / "edit.png",
+        "pred": case_dir / "pred.png",
+        "step1_alpha": case_dir / "step1_alpha.png",
+        "step1_heatmap": case_dir / "step1_heatmap.png",
+        "step1_overlay": case_dir / "step1_overlay.png",
+        "step2_alpha": case_dir / "step2_alpha.png",
+        "step2_heatmap": case_dir / "step2_heatmap.png",
+        "step2_overlay": case_dir / "step2_overlay.png",
+    }
+
+
+def v6_case_ready(case_dir: Path) -> bool:
+    paths = v6_case_paths(case_dir)
+    required = [
+        paths["prompt"], paths["src"], paths["edit"], paths["pred"],
+        paths["step1_alpha"], paths["step1_heatmap"], paths["step1_overlay"],
+        paths["step2_alpha"], paths["step2_heatmap"], paths["step2_overlay"],
     ]
+    return all(p.is_file() for p in required)
+
+
+def write_v6_case_bundle(
+    case_dir: Path,
+    src_pil: Image.Image,
+    edit_pil: Image.Image,
+    prompt: str,
+    alphas: List[torch.Tensor],
+    num_steps: int,
+    heatmap_blend: float,
+    overlay_blend: float,
+) -> Dict[str, str]:
+    if len(alphas) < 2:
+        raise RuntimeError(f"Expected >=2 alpha maps for v6, got {len(alphas)}")
+    case_dir.mkdir(parents=True, exist_ok=True)
+    paths = v6_case_paths(case_dir)
+    paths["prompt"].write_text((prompt or "").rstrip() + "\n", encoding="utf-8")
+    src_pil.save(paths["src"])
+    edit_pil.save(paths["edit"])
+    edit_pil.save(paths["pred"])  # scoring looks for pred.png
+
+    img_w, img_h = src_pil.size
+    for step_i, alpha in enumerate(alphas[:2], start=1):
+        step_label = f"step {step_i}/{num_steps}"
+        render_alpha_grid_blank(
+            img_w, img_h, alpha, step_label=step_label, continuous=True,
+        ).save(paths[f"step{step_i}_alpha"])
+        render_continuous_alpha_on_src(
+            src_pil,
+            alpha,
+            blend=heatmap_blend,
+            step_label=step_label,
+            title_prefix="Alpha heatmap",
+            draw_grid=True,
+        ).save(paths[f"step{step_i}_heatmap"])
+        render_continuous_alpha_on_src(
+            src_pil,
+            alpha,
+            blend=overlay_blend,
+            step_label=step_label,
+            title_prefix="Alpha overlay",
+            draw_grid=True,
+        ).save(paths[f"step{step_i}_overlay"])
+    return {k: str(v) for k, v in paths.items()}
+
+
+def basic_suite_complete(output_dir: Path, tasks: List[Tuple[str, Dict]]) -> Tuple[bool, Dict[str, int]]:
+    """Completion check: basic uses category v6 packs; uge/multiturn use flat paths."""
+    expected = 0
+    found = 0
+    for task_key, item in tasks:
+        suite_name, sample_key = task_key.split(":", 1)
+        if suite_name == "basic":
+            expected += 1
+            case_dir = basic_case_dir(output_dir, item, sample_key)
+            if v6_case_ready(case_dir):
+                found += 1
+            continue
+        rel_paths = expected_outputs(task_key, item)
+        expected += len(rel_paths)
+        for rel in rel_paths:
+            if (output_dir / rel).is_file():
+                found += 1
+    return found == expected and expected > 0, {"expected": expected, "found": found}
 
 
 @torch.inference_mode()
-def run_one_student_alpha(
+def run_one_student_alpha_v6(
     model,
     image: Image.Image,
     prompt: str,
@@ -101,7 +173,8 @@ def run_one_student_alpha(
     guidance_scale: float,
     seed: int,
     device: str,
-) -> Tuple[Image.Image, List[Image.Image]]:
+) -> Tuple[Image.Image, Image.Image, List[torch.Tensor]]:
+    """One forward: edited image + per-step alpha tensors (for v6 renders)."""
     src_pil, captured_alphas, edited_pil = capture_student_alphas(
         model,
         image,
@@ -115,18 +188,7 @@ def run_one_student_alpha(
         return_edited=True,
         tensor_to_pil_fn=tensor_to_pil,
     )
-    img_w, img_h = src_pil.size
-    alpha_pils: List[Image.Image] = []
-    for step_idx, alpha_tensor in enumerate(captured_alphas, start=1):
-        alpha_pils.append(
-            render_alpha_grid_blank(
-                img_w,
-                img_h,
-                alpha_tensor,
-                step_label=f"step {step_idx}/{num_inference_steps}",
-            )
-        )
-    return edited_pil, alpha_pils
+    return src_pil, edited_pil, list(captured_alphas)
 
 
 def process_tasks(
@@ -141,21 +203,31 @@ def process_tasks(
     skip_existing: bool,
     device: str,
     desc: str,
+    heatmap_blend: float = HEATMAP_BLEND,
+    overlay_blend: float = OVERLAY_BLEND,
 ) -> Dict[str, Dict]:
+    if role == "student" and num_steps != 2:
+        raise ValueError(f"Alpha v6 joint infer expects nfe=2, got {num_steps}.")
+
     manifest: Dict[str, Dict] = {}
     for task_key, item in tqdm(tasks, desc=desc):
         suite_name, sample_key = task_key.split(":", 1)
         rel_paths = expected_outputs(task_key, item)
         abs_paths = [output_dir / rel for rel in rel_paths]
-        alpha_paths = alpha_vis_paths(output_dir, rel_paths[0], num_steps)
         case_dir = (
             basic_case_dir(output_dir, item, sample_key)
             if suite_name == "basic" else None)
-        score_ready = all(p.is_file() for p in abs_paths)
-        alpha_ready = (not alpha_paths) or all(p.is_file() for p in alpha_paths)
-        case_ready = case_dir is None or case_bundle_ready(case_dir)
-        if skip_existing and score_ready and alpha_ready and case_ready:
-            continue
+
+        if suite_name == "basic" and role == "student":
+            if skip_existing and case_dir is not None and v6_case_ready(case_dir):
+                continue
+        else:
+            score_ready = all(p.is_file() for p in abs_paths)
+            if skip_existing and score_ready:
+                if case_dir is None or v6_case_ready(case_dir) or role != "student":
+                    # non-basic: flat only; basic non-student shouldn't happen
+                    if suite_name != "basic" or role != "student":
+                        continue
 
         src_path = resolve_source_path(bench_root, item, task_key)
         if not src_path.is_file():
@@ -177,10 +249,34 @@ def process_tasks(
                 skip_existing=skip_existing,
                 device=device,
             )
+            alpha_outputs = []
+        elif suite_name == "basic" and role == "student":
+            assert case_dir is not None
+            src_pil, edit_pil, alphas = run_one_student_alpha_v6(
+                runner,
+                image=image,
+                prompt=item["prompt"],
+                num_inference_steps=num_steps,
+                guidance_scale=guidance_scale,
+                seed=task_seed,
+                device=device,
+            )
+            alpha_outputs = write_v6_case_bundle(
+                case_dir,
+                src_pil,
+                edit_pil,
+                item.get("prompt", ""),
+                alphas,
+                num_steps,
+                heatmap_blend=heatmap_blend,
+                overlay_blend=overlay_blend,
+            )
+            # No flat basic/{key}.png — scoring reads Category/key/pred.png
         else:
+            # UGE student / teacher / etc.: flat score png only
             abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
             if role == "student":
-                result, alpha_items = run_one_student_alpha(
+                src_pil, edit_pil, alphas = run_one_student_alpha_v6(
                     runner,
                     image=image,
                     prompt=item["prompt"],
@@ -189,13 +285,11 @@ def process_tasks(
                     seed=task_seed,
                     device=device,
                 )
-                result.save(abs_paths[0])
-                if case_dir is not None:
-                    write_basic_case_bundle(
-                        case_dir, image, result, item.get("prompt", ""))
-                for alpha_pil, alpha_path in zip(alpha_items, alpha_paths):
-                    alpha_path.parent.mkdir(parents=True, exist_ok=True)
-                    alpha_pil.save(alpha_path)
+                edit_pil.save(abs_paths[0])
+                alpha_outputs = {
+                    f"step{i}_alpha_tensor_shape": list(a.shape)
+                    for i, a in enumerate(alphas[:2], start=1)
+                }
             else:
                 result = run_one(
                     runner,
@@ -208,15 +302,7 @@ def process_tasks(
                     device=device,
                 )
                 result.save(abs_paths[0])
-                if case_dir is not None:
-                    write_basic_case_bundle(
-                        case_dir, image, result, item.get("prompt", ""))
-
-        # If only the flat score png is missing but the case bundle exists,
-        # recover the scoring path without re-running the model.
-        if case_dir is not None and case_bundle_ready(case_dir) and not abs_paths[0].is_file():
-            abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(case_dir / "pred.png", abs_paths[0])
+                alpha_outputs = []
 
         manifest[task_key] = {
             "suite": suite_name,
@@ -224,10 +310,11 @@ def process_tasks(
             "source": str(src_path),
             "prompt": item.get("prompt"),
             "turns": multiturn_prompts(item) if suite_name == "multiturn" else None,
-            "outputs": [str(p) for p in abs_paths],
+            "outputs": [str(p) for p in abs_paths] if suite_name != "basic" else [],
             "case_dir": str(case_dir) if case_dir is not None else None,
-            "alpha_outputs": [str(p) for p in alpha_paths],
+            "alpha_v6": alpha_outputs if isinstance(alpha_outputs, dict) else {},
             "edit_type": item.get("edit_type"),
+            "category": category_dir_name(item.get("edit_type")) if suite_name == "basic" else None,
         }
     return manifest
 
@@ -259,6 +346,8 @@ def _infer_worker(gpu_id: int, tasks: List[Tuple[str, Dict]], worker_cfg: dict) 
         worker_cfg["skip_existing"],
         device,
         desc=f"GPU {gpu_id}",
+        heatmap_blend=worker_cfg["heatmap_blend"],
+        overlay_blend=worker_cfg["overlay_blend"],
     )
     part_path = Path(worker_cfg["output_dir"]) / f"manifest.gpu{gpu_id}.json"
     part_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -281,6 +370,8 @@ def run_parallel_inference(args, tasks, output_dir, num_steps, guidance_scale, g
         "seed": args.seed,
         "skip_existing": args.skip_existing,
         "cpu_offload": args.cpu_offload,
+        "heatmap_blend": HEATMAP_BLEND,
+        "overlay_blend": OVERLAY_BLEND,
     }
     if len(buckets) == 1:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_ids[0])
@@ -302,7 +393,7 @@ def run_parallel_inference(args, tasks, output_dir, num_steps, guidance_scale, g
             args.seed,
             args.skip_existing,
             device,
-            desc=f"ImgEdit {args.role}/{args.suite} (alpha)",
+            desc=f"ImgEdit {args.role}/{args.suite} (alpha+v6)",
         )
 
     ctx = mp.get_context("spawn")
@@ -336,7 +427,7 @@ def main() -> None:
     if args.max_samples is not None:
         tasks = tasks[: args.max_samples]
 
-    complete, report = suite_complete(output_dir, tasks)
+    complete, report = basic_suite_complete(output_dir, tasks)
     if args.check_only:
         print(json.dumps({"output_dir": str(output_dir), "complete": complete, **report}, indent=2))
         raise SystemExit(0 if complete else 1)
@@ -377,7 +468,7 @@ def main() -> None:
             args.seed,
             args.skip_existing,
             device,
-            desc=f"ImgEdit {args.role}/{args.suite} (alpha)",
+            desc=f"ImgEdit {args.role}/{args.suite} (alpha+v6)",
         )
         manifest.update(new_manifest)
 
@@ -396,13 +487,17 @@ def main() -> None:
         "gpu_ids": gpu_ids,
         "student_resize_mode": os.environ.get("STUDENT_RESIZE_MODE", "center_crop"),
         "student_image_size": int(os.environ.get("STUDENT_IMAGE_SIZE", "1024")),
-        "alpha_vis_subdir": ALPHA_VIS_SUBDIR,
+        "alpha_vis": "v6_in_case_dir",
+        "heatmap_blend": HEATMAP_BLEND,
+        "overlay_blend": OVERLAY_BLEND,
+        "flat_basic_score_png": False,
         "output_dir": str(output_dir),
     }
     (output_dir / "run_meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Saved {len(manifest)} task records to {output_dir}")
-    print(f"Alpha patch visualizations -> {output_dir / ALPHA_VIS_SUBDIR}")
+    print("Basic layout: basic/<Category>/<key>/{src,edit,pred,prompt,step{1,2}_*}")
+    print("(no flat basic/{key}.png duplicates)")
 
 
 if __name__ == "__main__":

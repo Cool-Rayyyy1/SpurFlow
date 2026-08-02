@@ -1,17 +1,582 @@
-[RANK 0] 2026-07-28 01:34:49,077 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Attention with flexible fusion (permanent=True)
-[RANK 0] 2026-07-28 01:34:49,170 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Qwen Image prompt padding and attention mask handling for batch size > 1.
-[RANK 0] 2026-07-28 01:34:51,114 [WARNING] (simpletuner.helpers.models.flux.model) Flux.1 requires an alignment value of 64px. Overriding the value of --aspect_bucket_alignment.
-[RANK 0] 2026-07-28 01:34:51,147 [INFO] (simpletuner.helpers.models.common) Loading AutoencoderKL from /mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev
-[RANK 0] 2026-07-28 01:34:53,030 [INFO] (simpletuner.helpers.models.common) Moving AutoencoderKL to accelerator, converting from torch.float32 to torch.bfloat16
-[RANK 0] 2026-07-28 01:34:54,826 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 1: CLIPTokenizer with args: {'subfolder': 'tokenizer', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
-[RANK 0] 2026-07-28 01:34:54,974 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 2: T5Tokenizer with args: {'subfolder': 'tokenizer_2', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
-[RANK 0] 2026-07-28 01:34:55,257 [INFO] (simpletuner.helpers.models.common) Loading CLIP-L/14 text encoder
-[RANK 0] 2026-07-28 01:34:56,969 [INFO] (simpletuner.helpers.models.common) Loading T5 XXL v1.1 text encoder
-[RANK 0] 2026-07-28 01:35:26,358 [INFO] (simpletuner.helpers.training.gpu_circuit_breaker) GPU circuit breaker initialized with 1 GPU(s)
-[RANK 0] 2026-07-28 01:35:26,425 [ERROR] (simpletuner.helpers.training.gpu_circuit_breaker) GPU circuit breaker OPEN: cuda_error - CUDA out of memory. Tried to allocate 80.00 MiB. GPU 0 has a total capacity of 79.25 GiB of which 50.06 MiB is free. Process 1618752 has 4.25 GiB memory in use. Process 1618746 has 4.61 GiB memory in use. Process 1618750 has 4.77 GiB memory in use. Process 1618748 has 4.26 GiB memory in use. Process 2233754 has 55.98 GiB memory in use. Including non-PyTorch memory, this process has 5.30 GiB memory in use. Of the allocated memory 4.88 GiB is allocated by PyTorch, and 15.59 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf) (GPU 0)
-[RANK 0] 2026-07-28 01:35:26,425 [INFO] (simpletuner.helpers.models.common) Unloading all model components...
-[RANK 0] 2026-07-28 01:35:26,437 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory before unload: 4.72 GB
-[RANK 0] 2026-07-28 01:35:26,438 [INFO] (simpletuner.helpers.models.common) Text encoder 1: 196 params and 1 buffers on CUDA before move
-[RANK 0] 2026-07-28 01:35:26,441 [INFO] (simpletuner.helpers.models.common) Text encoder 1 successfully moved to meta device
-[RANK 0] 2026-07-28 01:35:26,443 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory after unload: 4.48 GB (freed 0.24 GB)
-[RANK 0] 2026-07-28 01:35:27,638 [INFO] (simpletuner.helpers.models.common) Model components unloaded successfully.
+[RANK 0] 2026-08-02 12:22:32,136 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Attention with flexible fusion (permanent=True)
+[RANK 0] 2026-08-02 12:22:32,202 [INFO] (simpletuner.helpers.training.diffusers_overrides) Patched Qwen Image prompt padding and attention mask handling for batch size > 1.
+[RANK 0] 2026-08-02 12:22:33,675 [WARNING] (simpletuner.helpers.models.flux.model) Flux.1 requires an alignment value of 64px. Overriding the value of --aspect_bucket_alignment.
+[RANK 0] 2026-08-02 12:22:33,701 [INFO] (simpletuner.helpers.models.common) Loading AutoencoderKL from /mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev
+[RANK 0] 2026-08-02 12:22:33,998 [INFO] (simpletuner.helpers.models.common) Moving AutoencoderKL to accelerator, converting from torch.float32 to torch.bfloat16
+[RANK 0] 2026-08-02 12:22:34,166 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 1: CLIPTokenizer with args: {'subfolder': 'tokenizer', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
+[RANK 0] 2026-08-02 12:22:34,244 [INFO] (simpletuner.helpers.models.common) Loading tokenizer 2: T5Tokenizer with args: {'subfolder': 'tokenizer_2', 'revision': None, 'use_fast': False, 'pretrained_model_name_or_path': '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'}
+[RANK 0] 2026-08-02 12:22:34,367 [INFO] (simpletuner.helpers.models.common) Loading CLIP-L/14 text encoder
+[RANK 0] 2026-08-02 12:22:35,133 [INFO] (simpletuner.helpers.models.common) Loading T5 XXL v1.1 text encoder
+[RANK 0] 2026-08-02 12:22:58,116 [INFO] (DataBackendFactory) Loading data backend config from config/multidatabackend.json
+[RANK 0] 2026-08-02 12:22:58,125 [INFO] (DataBackendFactory) Configuring text embed backend: pico-banana-text-embeds
+[RANK 0] 2026-08-02 12:22:58,131 [INFO] (DataBackendFactory) Moving text encoder 1 to cuda from cuda:0
+[RANK 0] 2026-08-02 12:22:58,136 [INFO] (DataBackendFactory) Moving text encoder 2 to cuda from cuda:0
+[RANK 0] 2026-08-02 12:22:58,146 [INFO] (DataBackendFactory) Skipping null embedding pre-computation for on-demand text cache.
+[RANK 0] 2026-08-02 12:22:58,146 [INFO] (DataBackendFactory) Completed loading text embed services.
+[RANK 0] 2026-08-02 12:22:58,147 [INFO] (DataBackendFactory) Configuring data backend: pico-banana-edit: {'id': 'pico-banana-edit', 'type': 'local', 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit', 'conditioning_data': ['pico-banana-reference'], 'caption_strategy': 'textfile', 'resolution': 1024, 'resolution_type': 'pixel_area', 'minimum_image_size': 512, 'maximum_image_size': 2048, 'target_downsample_size': 1024, 'crop': True, 'crop_style': 'random', 'crop_aspect': 'square', 'cache_dir_vae': '/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit', 'vae_cache_clear_each_epoch': False, 'probability': 1.0, 'repeats': 0, 'vae_cache_ondemand': True}
+[RANK 0] 2026-08-02 12:22:58,163 [INFO] (DataBackendFactory) (id=pico-banana-edit) Loading bucket manager.
+[RANK 0] 2026-08-02 12:22:58,868 [WARNING] (DataBackendFactory) Key end_epoch not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:22:58,869 [WARNING] (DataBackendFactory) Key end_step not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:22:58,869 [WARNING] (DataBackendFactory) Key vae_cache_disable not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:22:58,870 [WARNING] (DataBackendFactory) Key crop_aspect_buckets not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:22:58,870 [WARNING] (DataBackendFactory) Key disable_validation not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:22:58,871 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-edit', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'probability': 1.0, 'repeats': 0, 'crop': True, 'crop_aspect': 'square', 'crop_aspect_buckets': None, 'crop_style': 'random', 'disable_validation': False, 'conditioning_data': ['pico-banana-reference'], 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': 'textfile', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'image'}, 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit'}
+[RANK 0] 2026-08-02 12:22:58,997 [INFO] (DataBackendFactory) (id=pico-banana-edit) Skipping text embed pre-computation for on-demand cache.
+[RANK 0] 2026-08-02 12:22:58,997 [INFO] (DataBackendFactory) (id=pico-banana-edit) Creating VAE latent cache: vae_cache_dir='/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit'
+[RANK 0] 2026-08-02 12:22:58,998 [INFO] (DataBackendFactory) Moving text encoder 1 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:22:59,058 [INFO] (DataBackendFactory) Moving text encoder 2 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:23:19,110 [INFO] (DataBackendFactory) Moving text encoder 1 to cuda from cpu
+[RANK 0] 2026-08-02 12:23:19,155 [INFO] (DataBackendFactory) Moving text encoder 2 to cuda from cpu
+[RANK 0] 2026-08-02 12:23:20,158 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-edit', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'probability': 1.0, 'repeats': 0, 'crop': True, 'crop_aspect': 'square', 'crop_aspect_buckets': None, 'crop_style': 'random', 'disable_validation': False, 'conditioning_data': ['pico-banana-reference'], 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': 'textfile', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'image'}, 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit'}
+[RANK 0] 2026-08-02 12:23:20,510 [INFO] (DataBackendFactory) Configuring data backend: pico-banana-reference: {'id': 'pico-banana-reference', 'type': 'local', 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference', 'conditioning_type': 'reference_strict', 'caption_strategy': None, 'resolution': 1024, 'resolution_type': 'pixel_area', 'minimum_image_size': 512, 'maximum_image_size': 2048, 'target_downsample_size': 1024, 'cache_dir_vae': '/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference', 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True}
+[RANK 0] 2026-08-02 12:23:20,530 [INFO] (DataBackendFactory) (id=pico-banana-reference) Loading bucket manager.
+[RANK 0] 2026-08-02 12:23:20,731 [INFO] (DataBackendFactory) Duplicating metadata for reference_strict conditioning dataset from pico-banana-edit
+[RANK 0] 2026-08-02 12:23:21,197 [INFO] (simpletuner.helpers.metadata.utils.duplicator) Copying metadata with path translation: '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit' -> '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference'
+[RANK 0] 2026-08-02 12:23:43,098 [INFO] (simpletuner.helpers.metadata.utils.duplicator) Metadata copied successfully.
+[RANK 0] 2026-08-02 12:23:43,100 [INFO] (BaseMetadataBackend) 
+-> MetadataBackend ID: pico-banana-edit, 
+-> Instance Data Dir: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit, 
+-> Cache File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit/aspect_ratio_bucket_indices_pico-banana-edit.json, 
+-> Metadata File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/edit/aspect_ratio_bucket_metadata_pico-banana-edit.json, 
+-> Aspect Ratio Buckets: 1
+[RANK 0] 2026-08-02 12:23:43,100 [INFO] (BaseMetadataBackend) 
+-> MetadataBackend ID: pico-banana-reference, 
+-> Instance Data Dir: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference, 
+-> Cache File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference/aspect_ratio_bucket_indices_pico-banana-reference.json, 
+-> Metadata File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference/aspect_ratio_bucket_metadata_pico-banana-reference.json, 
+-> Aspect Ratio Buckets: 1
+[RANK 0] 2026-08-02 12:23:43,100 [INFO] (BaseMetadataBackend) MetadataBackend pico-banana-reference is now read-only.
+[RANK 0] 2026-08-02 12:23:43,130 [INFO] (DataBackendFactory) (id=pico-banana-reference) Skipping bucket split; metadata already aligned from source dataset.
+[RANK 0] 2026-08-02 12:23:43,130 [WARNING] (DataBackendFactory) Key end_epoch not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:23:43,131 [WARNING] (DataBackendFactory) Key end_step not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:23:43,131 [WARNING] (DataBackendFactory) Key vae_cache_disable not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:23:43,131 [WARNING] (DataBackendFactory) Key crop not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:23:43,131 [WARNING] (DataBackendFactory) Key crop_aspect not found in the current backend config, using the existing value 'square'.
+[RANK 0] 2026-08-02 12:23:43,132 [WARNING] (DataBackendFactory) Key crop_style not found in the current backend config, using the existing value 'random'.
+[RANK 0] 2026-08-02 12:23:43,132 [WARNING] (DataBackendFactory) Key disable_validation not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:23:43,132 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-reference', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'crop': False, 'crop_aspect': 'square', 'crop_style': 'random', 'disable_validation': False, 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': None, 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'conditioning', 'repeats': 0}, 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference'}
+[RANK 0] 2026-08-02 12:23:43,244 [INFO] (DataBackendFactory) (id=pico-banana-reference) Skipping text embed pre-computation for on-demand cache.
+[RANK 0] 2026-08-02 12:23:43,245 [INFO] (DataBackendFactory) (id=pico-banana-reference) Creating VAE latent cache: vae_cache_dir='/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference'
+[RANK 0] 2026-08-02 12:23:43,246 [INFO] (DataBackendFactory) Moving text encoder 1 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:23:43,291 [INFO] (DataBackendFactory) Moving text encoder 2 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:24:00,016 [INFO] (DataBackendFactory) Moving text encoder 1 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:00,059 [INFO] (DataBackendFactory) Moving text encoder 2 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:01,014 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-reference', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'crop': False, 'crop_aspect': 'square', 'crop_style': 'random', 'disable_validation': False, 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': None, 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'conditioning', 'repeats': 0}, 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/train/reference'}
+[RANK 0] 2026-08-02 12:24:01,015 [INFO] (DataBackendFactory) Configuring data backend: pico-banana-edit-val: {'id': 'pico-banana-edit-val', 'type': 'local', 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit', 'conditioning_data': ['pico-banana-reference-val'], 'caption_strategy': 'textfile', 'resolution': 1024, 'resolution_type': 'pixel_area', 'minimum_image_size': 512, 'maximum_image_size': 2048, 'target_downsample_size': 1024, 'crop': True, 'crop_style': 'center', 'crop_aspect': 'square', 'cache_dir_vae': '/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit_val', 'vae_cache_clear_each_epoch': False, 'probability': 0.0, 'repeats': 0, 'disabled': False, 'vae_cache_ondemand': True}
+[RANK 0] 2026-08-02 12:24:01,030 [INFO] (DataBackendFactory) (id=pico-banana-edit-val) Loading bucket manager.
+[RANK 0] 2026-08-02 12:24:01,036 [WARNING] (DataBackendFactory) Key end_epoch not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:24:01,036 [WARNING] (DataBackendFactory) Key end_step not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:24:01,036 [WARNING] (DataBackendFactory) Key vae_cache_disable not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:24:01,037 [WARNING] (DataBackendFactory) Key crop_aspect_buckets not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:24:01,037 [WARNING] (DataBackendFactory) Key disable_validation not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:24:01,037 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-edit-val', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'probability': 0.0, 'repeats': 0, 'crop': True, 'crop_aspect': 'square', 'crop_aspect_buckets': None, 'crop_style': 'center', 'disable_validation': False, 'conditioning_data': ['pico-banana-reference-val'], 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': 'textfile', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'image'}, 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit'}
+[RANK 0] 2026-08-02 12:24:01,039 [INFO] (DataBackendFactory) (id=pico-banana-edit-val) Skipping text embed pre-computation for on-demand cache.
+[RANK 0] 2026-08-02 12:24:01,039 [INFO] (DataBackendFactory) (id=pico-banana-edit-val) Creating VAE latent cache: vae_cache_dir='/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/edit_val'
+[RANK 0] 2026-08-02 12:24:01,039 [INFO] (DataBackendFactory) Moving text encoder 1 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:24:01,080 [INFO] (DataBackendFactory) Moving text encoder 2 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:24:05,417 [INFO] (DataBackendFactory) Moving text encoder 1 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:05,452 [INFO] (DataBackendFactory) Moving text encoder 2 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:06,402 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-edit-val', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'probability': 0.0, 'repeats': 0, 'crop': True, 'crop_aspect': 'square', 'crop_aspect_buckets': None, 'crop_style': 'center', 'disable_validation': False, 'conditioning_data': ['pico-banana-reference-val'], 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': 'textfile', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'image'}, 'dataset_type': 'image', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit'}
+[RANK 0] 2026-08-02 12:24:06,417 [INFO] (DataBackendFactory) Configuring data backend: pico-banana-reference-val: {'id': 'pico-banana-reference-val', 'type': 'local', 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference', 'conditioning_type': 'reference_strict', 'caption_strategy': None, 'resolution': 1024, 'resolution_type': 'pixel_area', 'minimum_image_size': 512, 'maximum_image_size': 2048, 'target_downsample_size': 1024, 'cache_dir_vae': '/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference_val', 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True}
+[RANK 0] 2026-08-02 12:24:06,426 [INFO] (DataBackendFactory) (id=pico-banana-reference-val) Loading bucket manager.
+[RANK 0] 2026-08-02 12:24:06,429 [INFO] (DataBackendFactory) Duplicating metadata for reference_strict conditioning dataset from pico-banana-edit-val
+[RANK 0] 2026-08-02 12:24:06,431 [INFO] (simpletuner.helpers.metadata.utils.duplicator) Copying metadata with path translation: '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit' -> '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference'
+[RANK 0] 2026-08-02 12:24:06,467 [INFO] (simpletuner.helpers.metadata.utils.duplicator) Metadata copied successfully.
+[RANK 0] 2026-08-02 12:24:06,468 [INFO] (BaseMetadataBackend) 
+-> MetadataBackend ID: pico-banana-edit-val, 
+-> Instance Data Dir: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit, 
+-> Cache File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit/aspect_ratio_bucket_indices_pico-banana-edit-val.json, 
+-> Metadata File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/edit/aspect_ratio_bucket_metadata_pico-banana-edit-val.json, 
+-> Aspect Ratio Buckets: 1
+[RANK 0] 2026-08-02 12:24:06,468 [INFO] (BaseMetadataBackend) 
+-> MetadataBackend ID: pico-banana-reference-val, 
+-> Instance Data Dir: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference, 
+-> Cache File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference/aspect_ratio_bucket_indices_pico-banana-reference-val.json, 
+-> Metadata File: /mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference/aspect_ratio_bucket_metadata_pico-banana-reference-val.json, 
+-> Aspect Ratio Buckets: 1
+[RANK 0] 2026-08-02 12:24:06,468 [INFO] (BaseMetadataBackend) MetadataBackend pico-banana-reference-val is now read-only.
+[RANK 0] 2026-08-02 12:24:06,469 [INFO] (DataBackendFactory) (id=pico-banana-reference-val) Skipping bucket split; metadata already aligned from source dataset.
+[RANK 0] 2026-08-02 12:24:06,469 [WARNING] (DataBackendFactory) Key end_epoch not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:24:06,469 [WARNING] (DataBackendFactory) Key end_step not found in the current backend config, using the existing value 'None'.
+[RANK 0] 2026-08-02 12:24:06,469 [WARNING] (DataBackendFactory) Key vae_cache_disable not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:24:06,470 [WARNING] (DataBackendFactory) Key crop not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:24:06,470 [WARNING] (DataBackendFactory) Key crop_aspect not found in the current backend config, using the existing value 'square'.
+[RANK 0] 2026-08-02 12:24:06,470 [WARNING] (DataBackendFactory) Key crop_style not found in the current backend config, using the existing value 'random'.
+[RANK 0] 2026-08-02 12:24:06,470 [WARNING] (DataBackendFactory) Key disable_validation not found in the current backend config, using the existing value 'False'.
+[RANK 0] 2026-08-02 12:24:06,471 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-reference-val', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'crop': False, 'crop_aspect': 'square', 'crop_style': 'random', 'disable_validation': False, 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': None, 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'conditioning', 'repeats': 0}, 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference'}
+[RANK 0] 2026-08-02 12:24:06,472 [INFO] (DataBackendFactory) (id=pico-banana-reference-val) Skipping text embed pre-computation for on-demand cache.
+[RANK 0] 2026-08-02 12:24:06,472 [INFO] (DataBackendFactory) (id=pico-banana-reference-val) Creating VAE latent cache: vae_cache_dir='/mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/vae/reference_val'
+[RANK 0] 2026-08-02 12:24:06,472 [INFO] (DataBackendFactory) Moving text encoder 1 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:24:06,517 [INFO] (DataBackendFactory) Moving text encoder 2 to cpu from cuda:0
+[RANK 0] 2026-08-02 12:24:10,924 [INFO] (DataBackendFactory) Moving text encoder 1 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:10,958 [INFO] (DataBackendFactory) Moving text encoder 2 to cuda from cpu
+[RANK 0] 2026-08-02 12:24:11,902 [INFO] (DataBackendFactory) Configured backend: {'id': 'pico-banana-reference-val', 'config': {'start_epoch': 1, 'start_step': 0, 'end_epoch': None, 'end_step': None, 'vae_cache_clear_each_epoch': False, 'vae_cache_ondemand': True, 'vae_cache_disable': False, 'crop': False, 'crop_aspect': 'square', 'crop_style': 'random', 'disable_validation': False, 'resolution': 1.048576, 'resolution_type': 'area', 'caption_strategy': None, 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference', 'hash_filenames': True, 'maximum_image_size': 4.194304, 'target_downsample_size': 1.048576, 'dataset_type': 'conditioning', 'repeats': 0}, 'dataset_type': 'conditioning', 'instance_data_dir': '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k/simpletuner_pairs/val/reference'}
+[RANK 0] 2026-08-02 12:24:11,903 [INFO] (DataBackendFactory) (id=pico-banana-edit) Connected conditioning datasets: ['pico-banana-reference']
+[RANK 0] 2026-08-02 12:24:11,904 [INFO] (DataBackendFactory) (id=pico-banana-edit-val) Connected conditioning datasets: ['pico-banana-reference-val']
+[RANK 0] 2026-08-02 12:24:12,103 [INFO] (Validation) Collected 4 edit-validation samples.
+[RANK 0] 2026-08-02 12:24:12,105 [INFO] (Validation) Completed validation prompt gathering.
+[RANK 0] 2026-08-02 12:24:12,111 [INFO] (simpletuner.helpers.models.common) Loading diffusion model from /mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev
+[RANK 0] 2026-08-02 12:24:15,684 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat -fno-strict-overflow -Wsign-compare -DNDEBUG -O2 -Wall -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -c /tmp/tmpwd28vwvf/test.c -o /tmp/tmpwd28vwvf/test.o
+[RANK 0] 2026-08-02 12:24:15,826 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat /tmp/tmpwd28vwvf/test.o -laio -o /tmp/tmpwd28vwvf/a.out
+[RANK 0] 2026-08-02 12:24:16,032 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat -fno-strict-overflow -Wsign-compare -DNDEBUG -O2 -Wall -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -c /tmp/tmps1r70mje/test.c -o /tmp/tmps1r70mje/test.o
+[RANK 0] 2026-08-02 12:24:16,175 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat /tmp/tmps1r70mje/test.o -L/mnt/afs_zhangyunzhe/cuda12.9 -L/mnt/afs_zhangyunzhe/cuda12.9/lib64 -lcufile -o /tmp/tmps1r70mje/a.out
+[RANK 0] 2026-08-02 12:24:16,350 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat -fno-strict-overflow -Wsign-compare -DNDEBUG -O2 -Wall -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -O2 -isystem /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/include -fPIC -c /tmp/tmp8sd8qt1r/test.c -o /tmp/tmp8sd8qt1r/test.o
+[RANK 0] 2026-08-02 12:24:16,501 [INFO] (root) gcc -pthread -B /mnt/afs_zhangyunzhe/miniconda3/envs/simpletuner/compiler_compat /tmp/tmp8sd8qt1r/test.o -laio -o /tmp/tmp8sd8qt1r/a.out
+[RANK 0] 2026-08-02 12:24:23,822 [INFO] (simpletuner.helpers.models.common) delete_all_model_caches called, delete_model_after_load=False
+[RANK 0] 2026-08-02 12:25:25,854 [INFO] (simpletuner.helpers.training.optimizer_param) cls: <class 'simpletuner.helpers.training.optimizers.adamw_bfloat16.AdamWBF16'>, settings: {'betas': (0.9, 0.999), 'weight_decay': 0.01, 'eps': 1e-06}
+[RANK 0] 2026-08-02 12:25:26,160 [INFO] (SaveHookManager) load_model_hook: model_type='lora', lora_type='standard', is_fsdp2_run=False
+[RANK 0] 2026-08-02 12:25:26,161 [INFO] (SaveHookManager) Loading LoRA weights from Path: /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/output/flux_kontext_sft_pico400k/checkpoint-50
+[RANK 0] 2026-08-02 12:25:27,039 [INFO] (simpletuner.helpers.models.common) Finished loading LoRA weights successfully.
+[RANK 0] 2026-08-02 12:25:27,043 [INFO] (SaveHookManager) Completed loading LoRA weights.
+[RANK 0] 2026-08-02 12:25:28,858 [INFO] (MultiAspectSampler-pico-banana-edit) [RANK 0] Previous checkpoint had 0 exhausted buckets.
+[RANK 0] 2026-08-02 12:25:28,859 [INFO] (MultiAspectSampler-pico-banana-edit) [RANK 0] Previous checkpoint was on epoch 50.
+[RANK 0] 2026-08-02 12:25:28,860 [INFO] (MultiAspectSampler-pico-banana-edit) [RANK 0] Previous checkpoint had 1 seen images.
+[RANK 0] 2026-08-02 12:25:28,861 [INFO] (MultiAspectSampler-pico-banana-edit-val) [RANK 0] Previous checkpoint had 0 exhausted buckets.
+[RANK 0] 2026-08-02 12:25:28,861 [INFO] (MultiAspectSampler-pico-banana-edit-val) [RANK 0] Previous checkpoint was on epoch 1.
+[RANK 0] 2026-08-02 12:25:28,861 [INFO] (MultiAspectSampler-pico-banana-edit-val) [RANK 0] Previous checkpoint had 0 seen images.
+[RANK 0] 2026-08-02 12:25:29,551 [INFO] (MultiAspectSampler-pico-banana-edit) [RANK 0] 
+(Rank: 0)     -> Number of seen images: 1
+(Rank: 0)     -> Number of unseen images: 257545
+(Rank: 0)     -> Current Bucket: None
+(Rank: 0)     -> 1 Buckets: [1.0]
+(Rank: 0)     -> 0 Exhausted Buckets: []
+[RANK 0] 2026-08-02 12:25:29,552 [INFO] (MultiAspectSampler-pico-banana-edit-val) [RANK 0] 
+(Rank: 0)     -> Number of seen images: 0
+(Rank: 0)     -> Number of unseen images: 128
+(Rank: 0)     -> Current Bucket: None
+(Rank: 0)     -> 1 Buckets: [1.0]
+(Rank: 0)     -> 0 Exhausted Buckets: []
+[RANK 0] 2026-08-02 12:25:32,970 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c603ca5f3dd76b6f33e88291db42eae0-flux.pt not found.
+[RANK 0] 2026-08-02 12:25:33,014 [INFO] (simpletuner.helpers.models.common) Adding tokenizer
+[RANK 0] 2026-08-02 12:25:33,023 [INFO] (simpletuner.helpers.models.common) Adding tokenizer_2
+[RANK 0] 2026-08-02 12:25:39,748 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/af38f04bfa1262f751a73af3a3daa841-flux.pt not found.
+[RANK 0] 2026-08-02 12:25:45,659 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bd85e75317de9036eb70b75cccb18fb9-flux.pt not found.
+[RANK 0] 2026-08-02 12:25:51,553 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4a792dd7650467adc48a59dddd601b1c-flux.pt not found.
+[RANK 0] 2026-08-02 12:25:57,505 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bf1abeddd9bf92d3b411778efe811b16-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:03,480 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4c6fbc3160dfdbf1e59251c1240221e2-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:09,438 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1d3337a85ac1458ac2d9444d4a3f98ad-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:15,384 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fc67b952b2726c6fd17d0041cb0fc03e-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:27,283 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ea69fa81834296899c410d3e5edda3b6-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:33,267 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a123bfc194184d1e6518eeeb97e3383c-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:39,276 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/34ce994218e30c644fb9ffe9d8a39197-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:45,147 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cd83c04acabbce2dd554fb4864b7f5be-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:51,120 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6bc734f2a2a4452461c90d328ceb09ae-flux.pt not found.
+[RANK 0] 2026-08-02 12:26:56,988 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c1624bd0a949b88e93b3755959d07510-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:02,875 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cc76250947fb7bd31b2c14df29f6a062-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:08,826 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/dc93cc14a41855d31846795ed211a881-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:14,715 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7ba156cfd0150efddea94d18250b0374-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:20,715 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8ec8612a05bb66f38f355520b1e26fdf-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:26,723 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9a0844e137201a7f2154ec8aad6ad5dd-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:32,726 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bfa7abe2415c6ad59e1b86f88e5dba17-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:38,652 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c57fb22e4d2cef9aac9ceb09376949ff-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:50,554 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/19996b0d4ee486b4bce65bf371f134f6-flux.pt not found.
+[RANK 0] 2026-08-02 12:27:56,459 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d76822089135c64ec41eaee383ae4c23-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:02,386 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/23ff8230cad47fc8958a6196baa0e017-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:08,378 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cd7f847396084f384d4e72bbc6c56f2f-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:14,346 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/18cbd0ccd344663d36076d4db72fcf30-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:20,288 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1cb3718656d89e26611debc3e4a54a44-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:26,214 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e7c166ba3935c365515f14079b194eca-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:32,174 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a168bfe13f315950b2998089daefe383-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:38,112 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9ad4000f84caef720638b1aad7897843-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:44,111 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/edb98a17192b893cc53a284eccfd4f01-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:50,046 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9a04c5310d2203a68077b39641e699f9-flux.pt not found.
+[RANK 0] 2026-08-02 12:28:56,005 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e163ff6238fe65980e33c4c941c653fa-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:01,946 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ffc6b5f43b5068bd1501e2fc9f64de42-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:07,841 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ad68936dda5b828694aeaba616f8be8c-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:13,828 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cf5bd4db5b409f4d610d964dba205099-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:19,725 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/51ac55894e5508327aa8f733bd547e5d-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:25,704 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/895ae77a18bcc7b6f0caffcbf1855ffb-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:31,711 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/38034316c632147c3c54b0065148adae-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:37,591 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a4371ec42e0f26b82d9946898414b455-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:43,597 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cbe08d9d06414a77ceb6d0e22474014b-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:49,529 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ddf28f00e82afc043fec8f424b2e9248-flux.pt not found.
+[RANK 0] 2026-08-02 12:29:55,501 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f506d62e77d7d08295b038d71cd0f43d-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:01,470 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6d873243a2cdc95994a2c2203a8903c3-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:07,396 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/532c293fb40ee354c967973c128ba2d8-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:13,342 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e2306eecefa3829a646f845082785e47-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:25,219 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cde782a276d0ac0f6079ebc5df5a1c1e-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:37,188 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2eb1a7d3cd761c2768859b31121bb9fe-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:43,095 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a928c7dfa1fc8f2a83ad38e6f2c112da-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:48,970 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b34859ed8a3ca555363a5677e93b47f9-flux.pt not found.
+[RANK 0] 2026-08-02 12:30:55,326 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/325225b36b3cd0edb912f7e9c5cf47b7-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:01,211 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/12a739e7cb7a4ebc467a33be9d5ff25f-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:07,109 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6262cdd9ca7646df2b2e0c0c97322a43-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:13,005 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/af4c507b5d615870303c2a29c85ae59b-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:19,002 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1c2237890dd1370bb2331afa1a90eaa0-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:25,018 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8affc411b36968be80b6a69684433bb7-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:31,175 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3f9bbcda5f74f5d91963eb7f9833faba-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:37,129 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7ba14bf018dd0307e2b5434108962690-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:43,005 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7df7bbb3ef4bdc41fd68ddbf6b805446-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:48,951 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/96ef4ce459a8c068bb10cc3c7aef906e-flux.pt not found.
+[RANK 0] 2026-08-02 12:31:54,831 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f85c1bd7ffcd8e6bd3a483d88cc4c4f1-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:00,816 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/02ee8a15fe196b9bf2546fa72a1aab2e-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:06,972 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e2e77cf4218d1a65ade1b6509c7e5104-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:13,019 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/710a141d9ecf6daf652f171eeeccb088-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:19,036 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/11b8d723e639df0cb4a4cdae97d4d1c5-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:25,239 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/40e9c3cddd7eba6bbeae39e65570e170-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:31,135 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a038be4c7318a5ae1b126be696254558-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:37,129 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8ca400c6af5f20745f59d1bc260b4ecc-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:43,107 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b54c23047d0df23c767591ec50f6b1b5-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:48,966 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/34a2f6beab30de36f257e09ce52cbe20-flux.pt not found.
+[RANK 0] 2026-08-02 12:32:54,852 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6e797a05b229f52e4bdc85a9fc40b513-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:00,774 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ce7c4199a5b7f62b8168462b617aff24-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:06,726 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8c3cd11356e56fc8ec4c8ef7d8bafd7c-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:12,603 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a510bd49cc455bcf33c442d69a33575a-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:24,362 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/05081a1b2e38b0ecd7cb5db17a8f567f-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:30,317 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ba4934ef92c4653669ce51e80816d597-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:36,313 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7bb260f65454ed2922c162718965af85-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:42,207 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9328ea44d57d654e2cdb3e9344cf11a0-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:48,147 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8391b5a2c483e21691df40a12217e6f1-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:54,010 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e474c2e120a4d9a499c41affda090579-flux.pt not found.
+[RANK 0] 2026-08-02 12:33:59,903 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d068e8e8fca9bd3ade5c9338e82e5dfd-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:05,758 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/52214685266d0be58dcffb443d46ef61-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:11,618 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e96fe69dc73d1e09d8871d8a6d132eb1-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:17,512 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/740aa61b3567f910161eb2d015b7a4ad-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:23,378 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/635651abfa79d0edf5c0fcbac47655a7-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:29,252 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/265635eeea216153dd7e24faa3a93998-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:35,142 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e454c67ba3d642919126b0d952703f49-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:41,010 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/92725a00fae09726539cafb3c0652609-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:47,020 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/78620c2b4572d3a7fc6cbdfde777b542-flux.pt not found.
+[RANK 0] 2026-08-02 12:34:52,864 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c13955114d5c37b68f515f142b9d0bf3-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:04,562 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8b663758605dfd8b8c5ca90b86641b54-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:10,419 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5323b4170dc37199b1fc960307a09532-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:16,287 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/257d4f38144ae99c1bcafd02ceb687d9-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:22,114 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fce09970fa73234d0905e84b8e541c73-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:28,005 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/15a80c8e2ef09b3015be843a7a98f2c5-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:33,847 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2cf268f5538908fff12385724922a756-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:39,706 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8a5d626175831eff3162df1a313a0db3-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:45,560 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d7e3a40dfabbe299ae3be9a7f2848f2c-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:51,404 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/02774a81f6a6905b6e2869afb341b1a4-flux.pt not found.
+[RANK 0] 2026-08-02 12:35:57,281 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5cd486ec2897659fa23fa62cb3d8badd-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:03,160 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ece9c2fd23f34efaf1188eb4882e138e-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:09,020 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1abde18b0d059d49c724d4711fba12e5-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:14,877 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bbcafa5a283a2216af67b03134c8c351-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:20,743 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/eea25afca6a55f0f0c4ba6bf412f35d4-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:26,610 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/37dffc98fe17c6d6317ed62b9adfc66f-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:32,486 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/23e329aa55e7f3c5cec482c6764b5f89-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:38,336 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0ba6f5c04c572882ccd7b5584d02f138-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:44,204 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0c1430fba720c1d966967f41016c1511-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:50,042 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/df6ae5d5f45aa7ba9c9d061cffd0654d-flux.pt not found.
+[RANK 0] 2026-08-02 12:36:56,394 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cb8111b75a44054d70910e646e728e1b-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:02,266 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/62b6c1ed87708960993da5bba61f5337-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:08,142 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9354b91b5809e55dacc4554c9dbf5b82-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:19,850 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/460406b3a2b665ccb51a1f233eca72dc-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:25,693 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2a676ada2b2945b7f9dac24a660541a3-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:37,393 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9b8705868ea09b431885bdd89a4d972f-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:43,252 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/39e28e3bf9794ac74974371de0fa07e5-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:49,112 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3edad2e4ad972a4a2bf36d673cda92c9-flux.pt not found.
+[RANK 0] 2026-08-02 12:37:54,974 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e6bce990987a7410ae30dc8bcc71b962-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:00,827 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cdd776742d037a51d1317cf774b78289-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:06,698 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/63f421cfd3ceea11ad031fd6e10aac83-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:12,583 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7ad2c69630b7b6ee5334e657cc9dfa84-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:18,414 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6b4516f85a888964e4f56779598f4725-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:24,275 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/980c4148f79d0b8a73ec007fae0ba824-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:30,131 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/433c4679263339a7239a13dbd30d13db-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:35,983 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/98a40559060892d1973beeac99758a93-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:41,851 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/83b053bf1ed29a5923d0a5c454080135-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:47,738 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/10260bef538499a79aede0afe322fafb-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:53,591 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/83d8be35edfafecb30e5488df0ca43cf-flux.pt not found.
+[RANK 0] 2026-08-02 12:38:59,458 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ecacf141a47a3e83e49e9e9f7a899b4b-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:05,347 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5138e0db0568402aad910fdc4673bb13-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:11,198 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/69349ef3419a4114354026b8bb4e6a4d-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:17,076 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f3dfdeb679123b20879c70c1c70a3392-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:22,948 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/63cc0bbe50f4fcb7054b5ac9c992185e-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:28,813 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/77c08f42bb5fa0f781a0115fa3891e9a-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:34,700 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/77709b847e96ce2aa506d8783ebf1581-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:40,578 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d283bcfc262a17aebadb9e2e96c033aa-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:46,460 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5329ff17964a34fb91a71e6e1ddcc39b-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:52,339 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ea439216725c7bd765702a7cc763db98-flux.pt not found.
+[RANK 0] 2026-08-02 12:39:58,205 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a2a0f8f755cbd78e820d8ddaa913008f-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:04,072 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5665e9fae52596e7027e8ef4cd5ad928-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:09,946 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8ace89ef9310cb1c3c1df8bf91fdd924-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:15,822 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cd1cb32c43b47609f5eceed047b25ff3-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:21,687 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1b1aac030de322675f9f900b15556f24-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:27,557 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/38f4fca0e00e2fd3a8ec53ec28618731-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:33,457 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3c276ec0d4454db07c89c6c4ee324cec-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:39,352 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ec6abaf749b071c2853b020e8ed61e54-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:45,226 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/67b6b7d4e962a974408e492ec30b71b7-flux.pt not found.
+[RANK 0] 2026-08-02 12:40:56,927 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4fe959c5794af660ddc448a20ce6b8ba-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:02,782 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/15ce71749a08dfda4eeed8a494afbf58-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:14,425 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/839ea7ce89342fab6a985bd706e3a8a0-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:20,272 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ec8858d184e6b87d1366f49fea650d3e-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:26,151 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ccbf690ec0272750865088694f056798-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:32,020 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3543d56c60112b0d894ba9a72a1b1ded-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:37,919 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/958b1cae02ea8a1040ecd091ba3c103e-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:43,791 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f05db165eeea128e3f9589cb2246f784-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:49,763 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/657e06f56ebd98d571f3b4ba52ad2591-flux.pt not found.
+[RANK 0] 2026-08-02 12:41:55,641 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/976080f19af5d7c6494df815daa7923d-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:01,527 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8f1b9e116050eab0c9747ccf3439c333-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:07,419 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2c3e5ec62e358c5d26834fdb3e9da40c-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:13,302 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cb5e2a92b4237f26470b9979d10eaf65-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:19,175 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ec95e83fd3384660763313eb3e685be8-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:25,035 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/029949bf9696dbebf4d493e0dde48f25-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:30,890 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/21ce87a5d3a5ff86bf18c8fdb423d09b-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:36,760 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8f76dcd591438dc60724b02027ec6589-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:42,639 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f4b74df39d61cfb72362c76b1d8449d2-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:49,099 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7444b983d1aa628be07aa0407a1065de-flux.pt not found.
+[RANK 0] 2026-08-02 12:42:54,952 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2650fc132be474140884fb87845f6bae-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:00,824 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/53206dfd265f88869e39d71acd875477-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:06,690 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e4d2cd314ce8196927ff6fe7a4cade3c-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:12,577 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f040ef1b0625fcfb156cbd5ecba7ae12-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:18,443 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b73ed9b5b1cb098aebd8cec940e42f9c-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:24,311 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/503dcaf54f13176cdefa623101c09c88-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:30,157 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/08504de440ed6683c1757dd11aa2d4a4-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:36,003 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2421fc46c70b84cee4e625eba5e4cc13-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:41,887 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/965c4179940092a6a7391c4bff197fcb-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:47,787 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3a842d423af64a9304933f9528c2e89a-flux.pt not found.
+[RANK 0] 2026-08-02 12:43:53,644 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bbcab13289470668779d5c2add97c1e7-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:05,300 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e68bb4cea08599e8d1c25fe384e04ac4-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:11,160 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cd089f333ca8089f629be9aea6632c75-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:17,032 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1107d9c2827313b03c61faad2bc6c903-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:22,864 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6ee3ffa5decb66d655d16dad382e099f-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:28,731 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0807ad55d3fff00ba7ef586309a89c36-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:34,585 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4865507d2065c267d91405c373627e17-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:46,247 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/96128c18682a1caf9762ff09ebe6a14a-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:52,103 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d59d36bc255b38c3f516d884b83c2be8-flux.pt not found.
+[RANK 0] 2026-08-02 12:44:57,976 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d8dbdec5eb35a2e9383278561583bc2d-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:03,853 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/39666f7c67435bed11ad4dda3544fb34-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:09,694 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4c14492487192f96d80eca58907e73b5-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:15,565 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a4cdcb25747f36b05b42cbccf41067e7-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:21,451 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/100e0f9181aa42800f6b5ab8254f0ab2-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:27,276 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8f2ca349af8359a21a8471ae7bafeff7-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:33,212 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/52f3f4e6fa1927990b2952a1a08442c3-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:39,101 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4ecd8c1c0696c32cdae7bd4cb24ef3ba-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:44,947 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1ae62bc53b320fa8d1e20a30e3941cef-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:50,831 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6b00443404c03c18e5d2e02032af5aa5-flux.pt not found.
+[RANK 0] 2026-08-02 12:45:56,741 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/483bf7637f6d32161e869eebb4a1ecc4-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:02,597 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0f4cd978ed8734a4993eff996c20e25c-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:08,497 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b6d85e654631786ce27c7fbbcb83c740-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:14,392 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e023d46a636d1dc6f04984abe33d57aa-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:20,248 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7df0835feae011fddaa9ed3acbef8bc3-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:26,083 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e111d0f482376b3bda08df5fe68a9e4e-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:31,916 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3907700677abb6502b3ac6337456b8e5-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:37,822 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a49d5fd8e151369e0fff30321831d4ec-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:43,706 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/533b5cba94cbfbf9f4424b8c0d5e7911-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:49,701 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/31dd3fbf82b371b68fe1c808a23c9ebb-flux.pt not found.
+[RANK 0] 2026-08-02 12:46:55,586 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9d2b1474714a97219565f6fa701d41c9-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:01,456 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/800286d4659b1db02ae3d381ee0c8b91-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:07,330 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ba720b2924af85950fe43cea54d96b26-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:13,231 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/74a2910bbc51821a495783db80e4b4b4-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:19,127 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/944e92bf657e92e7474327d82c8e42c8-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:24,978 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8dfa8f009bf77262569f2cf7eda8663b-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:30,850 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8b79fb26dfe6480e02ed960a683ed64e-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:36,705 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/32b2e1a9b708482452e9a68b3e9f4f65-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:42,540 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3e333a6a9b4cf5b8e4b3b684e5925e5e-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:48,495 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f8c854bcce091d5efa141286c715218c-flux.pt not found.
+[RANK 0] 2026-08-02 12:47:54,362 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c69fb5695329e36f774fbdb5eb0ab10d-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:00,205 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/756b6d7fb7b9d0243c9a5f3895f66553-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:06,062 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e646ba9d48aa30476ef3584868fddc8c-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:11,921 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/29b7f38e97453673b9869f9c9489df3a-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:17,792 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a627eca2ccefc6104e39dbbf8b63a42c-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:23,648 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7e49b06d13fe86f48dc28e0be4e37c19-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:29,515 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/01fb69716e4dbd159e1ae16ce81cccfe-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:35,381 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e8421f1995e07ab165bd8e883cd9c97a-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:47,062 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/62330ed68e82be87e541fe73b1346813-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:52,928 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2c8910347364d2c47784f5443ea92c0f-flux.pt not found.
+[RANK 0] 2026-08-02 12:48:58,779 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7aab0ad92f0348ccaa138fd991d48334-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:04,647 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/171cef6560ade1446e98c0ccc34db9cb-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:22,841 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5870460db1837f39dbaf8384c0740baf-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:28,728 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2ca15db492375db587bfd39b49737c36-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:34,571 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/eb9745d633df50dbd30560712f11fe99-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:40,437 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e729c985de1a3b6b9ef5a4f54fba83fe-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:46,273 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b8532b14c78e64ada014e0b91b6150d2-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:52,149 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/dd3d7ad00ca7bf9d5614f871022350d5-flux.pt not found.
+[RANK 0] 2026-08-02 12:49:58,018 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b6efa4aba4435081f6b4bd2a4c81bbca-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:03,872 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0d66cb7af2e5f8c80c98c1a335d7ec9f-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:09,737 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0ff6883d1734dccf2176fa8de92d7564-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:15,582 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/53e6ebcec82b93f06bf131060b9e73c9-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:21,403 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cdf9ad74061885d9b7757007cb96ca3e-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:27,303 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/adcb07eeec02097f715f10bbb498df32-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:33,198 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f859f07b072c63341c2343f970c3fdb7-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:39,053 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/53b852cf8c3f6b0b2da0728748e2c7e7-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:44,919 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b75d5906f08ba81a4342d4bc0698e910-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:50,793 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/213d419eb775445cc7e8c3a98e09a5c8-flux.pt not found.
+[RANK 0] 2026-08-02 12:50:56,683 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/86a5c284f6bca8144821f980dbd1c950-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:02,544 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b9e2f320cfe3168bdad899819026daf0-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:08,405 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d8993acece9de2783d7eb9b70b157610-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:14,236 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bb8104773f0a53600913a54546b20992-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:25,944 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/acd638468475477bf63807c82ce4c623-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:31,792 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/794385687be13874990dcdd054bd9be0-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:37,692 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5d7b346751283513fca1211fd7032a76-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:43,554 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d4bc6e596b190d12c86ef461aa5acf48-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:49,417 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a984859dc9dac02fc8576be49c866c79-flux.pt not found.
+[RANK 0] 2026-08-02 12:51:55,297 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9801dbaa966095a9c7b0f0657f6577aa-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:01,174 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/be91c1675411e6a3698b3f786f5dd062-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:07,051 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5f6ac1a2727610a467078d874bd1853c-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:12,881 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d31b554dae21e81b526b5efddd499e0a-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:18,737 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/75759a80979885dee22ee492fe204be3-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:24,598 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c7612d3e4af323811df6a597d5aa44bf-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:30,475 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/98064b1cd9a7774f1b7763c136e85f6d-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:36,299 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ac9f4cefd66d37f08c1c7dedb0e5d3b6-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:42,135 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/dc1bb6bd6d13eaa06bd79e6b94726ac8-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:48,003 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1cb7a86a76f88b97a9d0a71d97519f6b-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:53,882 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fd78bf86f6cb3dd2a66e5b5fea5a666f-flux.pt not found.
+[RANK 0] 2026-08-02 12:52:59,750 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f9eebe91a73925de858fefdd74b061d8-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:05,590 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/36bc5ff90fd3c1a4c60940f34d22ef73-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:11,447 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cc6e34643eb40308ae49d76cd82f4b70-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:23,172 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e24dfe20707a2f8166decd44397a060e-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:40,727 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4018cd36a3804c13c98640d494848fe3-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:46,575 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/209745f6b59441a8f25351d3245dac20-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:52,448 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4303fb947fdceb6b765245e49e6f6be3-flux.pt not found.
+[RANK 0] 2026-08-02 12:53:58,319 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c4bde9d390d8662051bce9bafd878334-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:04,172 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/556a7d53b81a87aa028bf955cc8e088e-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:10,034 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cefac7d80574cdf34dda062c80565f9f-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:15,893 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2b8db4b975dc8df784ea28c054e58598-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:21,773 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/200af5113fb1d4bbd689ff4fb7b7a851-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:27,634 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/893e5aa8a7d4d5beea6ad25597da8338-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:33,501 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1c01564cc9edc402e751cdb2846f6026-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:39,362 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4842cdcc93250952ceb51e93c5b7fe6c-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:51,091 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/58dc256f07978a93b7c9d4842cacf875-flux.pt not found.
+[RANK 0] 2026-08-02 12:54:56,964 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4199cb79fe80db285cb3542a23e0296b-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:02,891 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/a957835077615bc9106043cc343f385f-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:08,749 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ab429176532ec39158dfa9c1b6348af0-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:14,621 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d152cf82c3cb4263f1f7d97aa2ac4a26-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:20,479 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0f21fe650297d7d40587509218783c3c-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:26,818 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/345ec00b4389e88aead6c6199f4d2d33-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:32,679 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3da92fbab6d3fef0420780f0865f491e-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:44,378 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2648a5eb743d9a2a32d57a37f54456a7-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:50,237 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d4b7385dea2c10b254b3b9507a252170-flux.pt not found.
+[RANK 0] 2026-08-02 12:55:56,142 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7a0789041563da54810ff027bad81d6c-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:02,015 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/80897a3a82ce1b2e92c05da062e4d380-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:07,921 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/33919ba4f1dbf148bdbb4222aabfa0b2-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:13,806 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e96b254e63859d5447944b6b7f7b9808-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:19,665 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b08d970763613cb223838403d42ca6de-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:25,540 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/43d30ee4aef431ad5f8719750ca05f8a-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:31,413 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/93f112edd48d35e37634f1807aa1e67a-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:37,277 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/04d68c2bd4200538ce21b09817b77785-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:43,139 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/055c77b859fbfd0b4b89408456c197be-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:49,018 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/995f133c1ac9f08dd9b24b458e1ce8a5-flux.pt not found.
+[RANK 0] 2026-08-02 12:56:54,873 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9d59c4ae53477943f1bbb915261ff81a-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:00,739 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6bc0a8f160aba7423d405e5e62874bc9-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:12,524 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fed5c8f74ad04798cd1d3715e75bd788-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:18,410 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ec34792f496b4c33efe83e205d5707a4-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:24,280 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e32cf7a61e946ee4814979fd036b072e-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:30,147 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ded5ee32ab4b29686640e93c355e52b1-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:36,021 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/6fec3941153ac8dad44fd44bfbae99c5-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:47,755 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/39696436974f5b18b22c139a03308a87-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:53,643 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/85dac45d1e23c94d539261c0d2d83dce-flux.pt not found.
+[RANK 0] 2026-08-02 12:57:59,502 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/575dd25ba22502b3e6c98544041c3f63-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:05,376 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2ebda1c4e686a10fec53cb5139c5e994-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:11,233 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8d7e9c98df600348a31686d54beeb9a0-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:17,105 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bd544e69314b46d88e1b278d14537968-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:22,969 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/033bfb265d5e3b4301a9dea8f56ce16f-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:28,838 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/75aae0c9dda85efd53e4fdf8f1ee99f7-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:34,734 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fb1d1bd306615a11a5ea1c85ae578734-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:40,604 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/52c2aaa3ef615256c055d7acfb69c5e3-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:46,500 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d97adb9042856af887f0402629da0b80-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:52,356 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/737863177d0c549b26c17f46e1a9c57c-flux.pt not found.
+[RANK 0] 2026-08-02 12:58:58,237 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b28cb4555b08b2df1936ecb51292d62a-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:04,141 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ca60454e89d668b7496d0f90610386c0-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:10,006 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2b09b3f0006da65a0e31286a19167d4a-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:15,855 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f03527d7ac9e2c798e491ee2492dc748-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:21,710 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2555afd3ef03b6d909e8fd867f39d28d-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:27,539 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/16de90358af4469df146a3f1a478a49f-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:33,413 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/dad85e83ffa39c36e64f133747e8c0b1-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:39,302 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d7c44f762daff53b10451136dbda5c87-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:45,131 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1c9edfa4fd026808a306a7624389f7e5-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:50,994 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f1241c8326551e6484b35c55fff7cefa-flux.pt not found.
+[RANK 0] 2026-08-02 12:59:56,861 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/40281f52fde657b39e88983bf66cd844-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:02,723 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2a566a573625eaab2bf0fb0de300848b-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:08,585 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7003d3821419176b860e8162b68ac8dc-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:14,492 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7a1c055365ade1f845e26918043a48f3-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:20,370 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ccd7f9f0c30163a432fc19a3ef22902c-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:26,235 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9d2ed4dc400d38306d4e8cd528c4fd66-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:32,116 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/012a7e64650692f0b866b9640c677b1c-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:43,806 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/aa92ea2c48280414dc60c92c7a5f648b-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:49,653 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d890e550befaaf9d346091d8fceb0fa1-flux.pt not found.
+[RANK 0] 2026-08-02 13:00:55,536 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/fe0d685438f62260d8278ddc6520ea81-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:01,411 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/77b90eea12e98ac665baa1063406701c-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:07,307 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4a596f5b554d9dcf3ca671c372582062-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:13,175 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/04d4a40e457eda6762869c49bd02c192-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:19,033 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1895aac85136cdd6202c814e4e4b4c00-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:24,875 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/41112225f846b301e3210b7818e6d635-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:31,352 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b25468bc6b7ef5fa600d6695add92f0f-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:37,222 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f8aaebbc2396435a45c542aab9f540d6-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:43,111 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/42c362fab74a07e2771a3c72738ae2ef-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:48,956 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/0cf53176cae05373115ad9fab14759e3-flux.pt not found.
+[RANK 0] 2026-08-02 13:01:54,832 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/05cfdc1bc5540a44e1e19556b77cc9f9-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:00,670 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/27a92dd4b675bcf7ef42d2f2aa303600-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:06,533 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3e30c99aadb6e86e7453f9a6be2814f4-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:12,410 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/513a0e53e59facede8dc6e4bf752cbd0-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:18,255 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1315dbc057fed039828b3655d1dc4b02-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:24,100 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/80f16afca72dfbab89beb2a07da1c162-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:29,934 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9d0f6ce32c87cf8709212546db63ea03-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:35,776 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f59212ec39d010cc0db4690959d419e5-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:41,632 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1b5fef09510bf61d630576deb4201a5d-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:47,495 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/af618ed5149f5d55b0aaf035aec694a4-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:53,348 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7652329c8a2bb9afc05e14f565496c44-flux.pt not found.
+[RANK 0] 2026-08-02 13:02:59,223 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d5d8c70048319c883adb4abc8a37d33b-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:05,078 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b15dcfd98e87b23d64a2d84af7da8072-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:10,928 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/713ceabf20ee3b3c037f4187aa4755f9-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:16,761 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/38453fb0d4751ccb4d49197f3df28f90-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:22,616 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/200a247ed97b6d9a3060566e69611539-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:28,474 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/044a89c016c4e9ca423e539619f9cf05-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:34,343 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f032ed542f36fdf7635559535991f5fc-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:40,219 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1d661625ae31f52baaaff6012a9b9354-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:46,086 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d1916464b6cba45e60d160e30785f6ab-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:51,933 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/54c36670dc7fe3d687d369789d802501-flux.pt not found.
+[RANK 0] 2026-08-02 13:03:57,827 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e3c11a1856eabef35f4346ffe7f2439c-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:03,679 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/90d445a4889ad6e9008e9578f8ebda67-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:09,544 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/66682667bb56c95b341c89895d17bbf8-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:15,417 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/66409497e6566f670ea367bdd5a48f5b-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:21,282 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7ae878c63e47546da82a984d1ae92757-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:27,154 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1450967edf2a0c7636ac7dd94cae85d7-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:33,018 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/8ec6ce2c9e9857e4d3b91b89f5a40a8d-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:38,869 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2d73784ac926c0b48da6a2203fb34f38-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:44,733 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/06da90fbf57187249cf53d2bd6437faf-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:50,584 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1e1d2e248b437e8815a8e53bf1f40610-flux.pt not found.
+[RANK 0] 2026-08-02 13:04:56,450 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bb87e19a5203ae157d8e63fcdd931376-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:02,352 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5cc72a0c02999ba7f39a3f40eb1e3e12-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:08,236 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/49fd28c1216cd46b329b0d19f6ee653d-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:14,127 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ac0e0c83afbacd7d1c81a3ad6e707584-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:19,997 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/df581fac1dc5d02f55d52e26f0465aed-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:31,766 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/35de56e46c76f6136a6db1d29976c9ad-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:37,625 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/62cfb157ccb9845a1126f496ecabe6e3-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:43,492 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2232a63ff557d2405a28dd2b4d769582-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:49,355 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5954fb3aa97d015f03037b2fcd37d66f-flux.pt not found.
+[RANK 0] 2026-08-02 13:05:55,199 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ddfde0eaf26627757889fc283777644f-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:01,067 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/bdd4541dc7519541a0a78eddc3ee59ab-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:06,951 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/68d88f82d887452e7e4ef49199dbcfc4-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:12,800 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f8e479f5ce2d64f1256dde20fe5d16da-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:18,679 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/56a30e782e3a104acfd5ca80ec2d269d-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:24,553 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9a67874b9bcf16433abad750bce94b90-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:30,437 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/46b1699abec1dd047a1552f063f5c583-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:36,298 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/d73cffcbc06197667a84bb4f9744399b-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:42,152 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5b4c5a9e7f741a9a7cb0d38d38e4dc42-flux.pt not found.
+[RANK 0] 2026-08-02 13:06:53,855 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/21893bcbb4c0e365ac0737351a7c0ddc-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:05,544 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/b5a391a744a730c7524d73542aa9f2b2-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:11,447 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ebe60151ae0635e7aa316ea1f5e1baf3-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:17,990 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/55121568baf464319902c96d8916e26e-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:23,907 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/383a5932ab1877229c2bc52f5a2cdace-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:29,819 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/87dd20f77daae6b2abbbe9b121687033-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:35,691 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c2f96026562d3fb0a58abc8ff50ac3c0-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:41,573 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/ae5a606d20148c9a23f21f2ca4c92484-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:47,438 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f3392d98103a3d4bb9a4ba99e51cb168-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:53,339 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/e5aad04b6d3fbfd567fab73b6e653225-flux.pt not found.
+[RANK 0] 2026-08-02 13:07:59,224 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/1bf2cf57b91f2eef4fb8f4206b293a4c-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:05,077 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/628231a73a5905426d4d44b0db1507b9-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:10,947 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/5707e91d681c03cd72afb8cdfd8fc162-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:16,820 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/7fed5fa2537dce48517b039bc6e0c40a-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:28,534 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/9d3e1b2cee55d949fa0a8d2a5688b0b3-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:34,617 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/4487a5b94ac56a2044b6eb1aa5bcb5a6-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:40,490 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/11239c53baa8803cf45c82e3a938da26-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:46,413 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/789c1b5eb2d93de16072d04383752913-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:52,288 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/dc5c2774f67865ab3f02423e4a607350-flux.pt not found.
+[RANK 0] 2026-08-02 13:08:58,163 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/411b2daecc2379880556fd6158817e62-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:03,971 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/f732364fbbaade26600a63c56bf61c0a-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:09,822 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/49350518ae7ceb2d49c64eb8f3867bc3-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:15,678 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/c6a6202231317f9e27514b07a85fd143-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:21,517 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/de93fa351db0c8ce7fc4d56d6ba157f5-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:27,384 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/2cfc6e49cf28fcc062436a416aeacbac-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:33,234 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/cb3a4e74bd184e8480d73354dd3e5977-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:39,091 [ERROR] (LocalDataBackend) /mnt/afs_zhangyunzhe/EditFlow/work_dirs/simpletuner_kontext_sft/cache/text/3bf490118e0e9594561c3d621d4a2a99-flux.pt not found.
+[RANK 0] 2026-08-02 13:09:43,891 [INFO] (simpletuner.helpers.models.common) Unloading all model components...
+[RANK 0] 2026-08-02 13:09:43,904 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory before unload: 31.79 GB
+[RANK 0] 2026-08-02 13:09:43,907 [INFO] (simpletuner.helpers.models.common) Text encoder 1: 196 params and 1 buffers on CUDA before move
+[RANK 0] 2026-08-02 13:09:43,912 [INFO] (simpletuner.helpers.models.common) Text encoder 1 successfully moved to meta device
+[RANK 0] 2026-08-02 13:09:43,913 [INFO] (simpletuner.helpers.models.common) Text encoder 1: memory after unload: 31.55 GB (freed 0.24 GB)
+[RANK 0] 2026-08-02 13:09:43,920 [INFO] (simpletuner.helpers.models.common) Text encoder 2: memory before unload: 31.55 GB
+[RANK 0] 2026-08-02 13:09:43,926 [INFO] (simpletuner.helpers.models.common) Text encoder 2: 219 params and 0 buffers on CUDA before move
+[RANK 0] 2026-08-02 13:09:43,936 [INFO] (simpletuner.helpers.models.common) Text encoder 2 successfully moved to meta device
+[RANK 0] 2026-08-02 13:09:43,937 [INFO] (simpletuner.helpers.models.common) Text encoder 2: memory after unload: 22.68 GB (freed 8.87 GB)
+[RANK 0] 2026-08-02 13:09:44,899 [INFO] (simpletuner.helpers.models.common) Model components unloaded successfully.

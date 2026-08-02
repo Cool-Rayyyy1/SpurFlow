@@ -68,6 +68,11 @@ REPORT_TO="${REPORT_TO:-tensorboard}"
 # on-demand encodes during training (faster startup, slower steps)
 TEXT_CACHE_ONDEMAND="${TEXT_CACHE_ONDEMAND:-1}"
 VAE_CACHE_ONDEMAND="${VAE_CACHE_ONDEMAND:-1}"
+# After the first full run builds aspect_ratio_bucket_*.json next to the pairs,
+# set e.g. SKIP_FILE_DISCOVERY=aspect,metadata to skip re-scan on later launches.
+# Valid tokens: aspect,vae,text,metadata (comma-separated).
+SKIP_FILE_DISCOVERY="${SKIP_FILE_DISCOVERY:-}"
+IGNORE_MISSING_FILES="${IGNORE_MISSING_FILES:-0}"
 # --------------------------------
 
 EDIT_TRAIN="${PAIR_ROOT}/train/edit"
@@ -161,6 +166,12 @@ cfg["--report_to"] = "${REPORT_TO}"
 cfg["--tracker_run_name"] = "${RUN_NAME}"
 cfg["--text_cache_ondemand"] = "true" if "${TEXT_CACHE_ONDEMAND}" == "1" else "false"
 cfg["--vae_cache_ondemand"] = "true" if "${VAE_CACHE_ONDEMAND}" == "1" else "false"
+skip_disc = "${SKIP_FILE_DISCOVERY}".strip()
+if skip_disc:
+    cfg["--skip_file_discovery"] = skip_disc
+else:
+    cfg.pop("--skip_file_discovery", None)
+cfg["--ignore_missing_files"] = "true" if "${IGNORE_MISSING_FILES}" == "1" else "false"
 # Strip launch-only keys that are not valid train.py argparse flags.
 cfg.pop("--num_processes", None)
 cfg.pop("num_processes", None)
@@ -189,5 +200,6 @@ echo "        pairs=${PAIR_ROOT}"
 echo "        out=${OUTPUT_DIR}"
 echo "        type=${MODEL_TYPE}/${LORA_TYPE}  rank=${LORA_RANK}  steps=${MAX_TRAIN_STEPS}"
 echo "        text_ondemand=${TEXT_CACHE_ONDEMAND}  vae_ondemand=${VAE_CACHE_ONDEMAND}"
+echo "        skip_file_discovery=${SKIP_FILE_DISCOVERY:-<none>}  ignore_missing_files=${IGNORE_MISSING_FILES}"
 
 simpletuner train config_backend=json

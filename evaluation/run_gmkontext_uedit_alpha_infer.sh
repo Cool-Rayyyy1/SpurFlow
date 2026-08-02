@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ImgEdit-Bench student inference for gmkontext_uedit alpha models.
 #
-# Output layout (no comparisons):
+# One-pass: generate edits + alpha v6 maps into category case folders.
+#
+# Output layout:
 #   student/basic/{Action,Add,Adjust,Background,Compose,Extract,Remove,Replace,Style}/{key}/
-#     src.png
-#     pred.png
-#     prompt.txt
-#   student/basic/{key}.png          — flat copy of pred for GPT scoring
+#     src.png  edit.png  pred.png  prompt.txt
+#     step{1,2}_{alpha,heatmap,overlay}.png
+#   (no flat student/basic/{key}.png)
 #   student/uge/{key}.png
-#   student/alpha_vis/...            — optional alpha overlays (not scored)
 #
 # For fixed-eps alpha (NO proj_out_epsilon), use:
 #   bash evaluation/run_gmkontext_uedit_fixedeps_alpha_infer.sh
@@ -35,14 +35,14 @@ export KONTEXT_MODEL_PATH="${KONTEXT_MODEL_PATH:-${WORKSPACE_ROOT}/pretrained_mo
 export IMGEDIT_BENCH_ROOT="${IMGEDIT_BENCH_ROOT:-${DATA_ROOT}/benchmark/Benchmark}"
 export PYTHONPATH="${EDITFLOW_DIR}:${PYTHONPATH:-}"
 
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
-NUM_GPUS="${NUM_GPUS:-2}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+NUM_GPUS="${NUM_GPUS:-1}"
 export NUM_GPUS
 
 RUN_NAME="${RUN_NAME:-gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k}"
 CONFIG="${CONFIG:-${EDITFLOW_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data.py}"
 CKPT="${CKPT:-}"
-RUN_TAG="${RUN_TAG:-${RUN_NAME}_$(basename "${CKPT:-iter_18000.pth}" .pth)}"
+RUN_TAG="${RUN_TAG:-${RUN_NAME}_$(basename "${CKPT:-iter_7000.pth}" .pth)}"
 
 STUDENT_NFE="${STUDENT_NFE:-2}"
 STUDENT_GUIDANCE="${STUDENT_GUIDANCE:-3.5}"
@@ -65,7 +65,6 @@ STUDENT_SCORES_DIR="${STUDENT_OUTPUT}/${SCORES_SUBDIR}"
 STUDENT_SCORES_TXT="${STUDENT_OUTPUT}/${SCORES_TXT_NAME}"
 export OPENAI_SCORING_MODEL="${OPENAI_SCORING_MODEL:-gpt-4o}"
 RUN_CONFIG_TXT="${RUN_OUTPUT_ROOT}/run_config.txt"
-ALPHA_VIS_DIR="${STUDENT_OUTPUT}/alpha_vis"
 
 resolve_ckpt() {
   if [[ -n "${CKPT}" && -f "${CKPT}" ]]; then
@@ -75,8 +74,10 @@ resolve_ckpt() {
   local cand
   shopt -s nullglob
   for cand in \
+    "${EDITFLOW_DIR}/checkpoints/model/final/${RUN_NAME}_new/iter_7000.pth" \
+    "${EDITFLOW_DIR}/checkpoints/model/final/${RUN_NAME}/iter_7000.pth" \
     "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}_20260713/iter_18000.pth" \
-    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_18000.pth \
+    "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_7000.pth \
     "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"*/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/model/${RUN_NAME}"/iter_*.pth \
     "${EDITFLOW_DIR}/checkpoints/${RUN_NAME}/latest.pth" \
@@ -97,7 +98,7 @@ write_run_config() {
   local status="${1:-started}"
   mkdir -p "${RUN_OUTPUT_ROOT}"
   {
-    echo "ImgEdit-Bench gmkontext_uedit Alpha Student Inference"
+    echo "ImgEdit-Bench gmkontext_uedit Alpha Student Inference (+ alpha v6)"
     echo "====================================================="
     echo "Status:          ${status}"
     echo "RUN_NAME:        ${RUN_NAME}"
@@ -109,8 +110,9 @@ write_run_config() {
     echo "STUDENT_RESIZE_MODE:${STUDENT_RESIZE_MODE}"
     echo "SUITE:           ${SUITE}"
     echo "STUDENT_OUTPUT:  ${STUDENT_OUTPUT}"
-    echo "ALPHA_VIS_DIR:   ${ALPHA_VIS_DIR}"
-    echo "LAYOUT:          student/basic/<Category>/<key>/{src,pred,prompt}"
+    echo "LAYOUT:          student/basic/<Category>/<key>/{src,edit,pred,prompt,step{1,2}_*}"
+    echo "FLAT_BASIC_PNG:  0  (scoring reads Category/key/pred.png)"
+    echo "ALPHA_VIS:       v6 inside each case dir (one-pass with gen)"
     echo "GEN_ONLY:        ${GEN_ONLY}"
     echo "NUM_PROCESSES:   ${NUM_PROCESSES}"
     echo "FORCE_SCORE:     ${FORCE_SCORE}"
@@ -183,7 +185,7 @@ fi
 CKPT_PATH=""
 if [[ "${SCORE_ONLY}" != "1" ]]; then
   if ! CKPT_PATH="$(resolve_ckpt)"; then
-    echo "ERROR: checkpoint not found. Set CKPT=/path/to/iter_18000.pth" >&2
+    echo "ERROR: checkpoint not found. Set CKPT=/path/to/iter_7000.pth" >&2
     exit 1
   fi
   echo "[ckpt] ${CKPT_PATH}"
@@ -192,7 +194,7 @@ fi
 write_run_config "started"
 
 if [[ "${SCORE_ONLY}" != "1" ]]; then
-  echo "[gen] alpha student ${RUN_NAME} (${STUDENT_NFE} NFE, guidance=${STUDENT_GUIDANCE}, resize=${STUDENT_RESIZE_MODE})"
+  echo "[gen] alpha+v6 student ${RUN_NAME} (${STUDENT_NFE} NFE, guidance=${STUDENT_GUIDANCE}, resize=${STUDENT_RESIZE_MODE})"
   run_student_generation
 fi
 
@@ -207,8 +209,7 @@ echo ""
 echo "Done."
 echo "  run folder:      ${RUN_OUTPUT_ROOT}"
 echo "  student outputs: ${STUDENT_OUTPUT}"
-echo "  basic cases:     ${STUDENT_OUTPUT}/basic/{Action,Add,...}/<key>/{src,pred,prompt}"
-echo "  alpha vis:       ${ALPHA_VIS_DIR}"
+echo "  basic cases:     ${STUDENT_OUTPUT}/basic/{Action,Add,...}/<key>/{src,edit,pred,prompt,step{1,2}_*}"
 if [[ "${GEN_ONLY}" != "1" ]]; then
   echo "  student scores:  ${STUDENT_SCORES_TXT}"
 fi

@@ -81,8 +81,40 @@ def is_valid_result(value) -> bool:
     return extract_scores_and_average(value) is not None
 
 
+def _category_dir_name(edit_type):
+    raw = str(edit_type or "unknown").strip()
+    titled = raw[:1].upper() + raw[1:].lower() if raw else "Unknown"
+    for name in (
+        "Action", "Add", "Adjust", "Background", "Compose",
+        "Extract", "Remove", "Replace", "Style",
+    ):
+        if name.lower() == titled.lower():
+            return name
+    return titled
+
+
+def resolve_result_image(result_img_folder, key, item):
+    """Prefer category case packs; fall back to flat ``{key}.png``."""
+    flat = os.path.join(result_img_folder, f"{key}.png")
+    if os.path.isfile(flat):
+        return flat
+    cat = _category_dir_name(item.get("edit_type"))
+    case_dir = os.path.join(result_img_folder, cat, str(key))
+    for name in ("pred.png", "edit.png"):
+        cand = os.path.join(case_dir, name)
+        if os.path.isfile(cand):
+            return cand
+    # lowercase category (alpha v6 standalone layout)
+    case_dir_l = os.path.join(result_img_folder, cat.lower(), str(key))
+    for name in ("pred.png", "edit.png"):
+        cand = os.path.join(case_dir_l, name)
+        if os.path.isfile(cand):
+            return cand
+    return flat
+
+
 def process_single_item(key, item, result_img_folder, origin_img_root, prompts):
-    result_img_path = os.path.join(result_img_folder, f"{key}.png")
+    result_img_path = resolve_result_image(result_img_folder, key, item)
     origin_img_path = os.path.join(origin_img_root, item["id"])
     edit_prompt = item["prompt"]
     edit_type = item["edit_type"]

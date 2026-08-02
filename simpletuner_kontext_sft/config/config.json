@@ -46,5 +46,7 @@
   "--push_checkpoints_to_hub": "false",
   "--disable_benchmark": "false",
   "--text_cache_ondemand": "true",
-  "--vae_cache_ondemand": "true"
+  "--vae_cache_ondemand": "true",
+  "--ignore_missing_files": "false",
+  "--skip_file_discovery": "aspect,metadata"
 }

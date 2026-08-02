@@ -9,6 +9,12 @@ from .latent_diffusion_qwen_image_edit import LatentDiffusionQwenImageEdit
 from .latent_diffusion_qwen_image_edit_alpha_split_stage_dino_gan import (
     LatentDiffusionQwenImageEditAlphaSplitStageDinoGAN,
 )
+from .latent_diffusion_qwen_image_edit_step2_dino_gan import (
+    LatentDiffusionQwenImageEditStep2DinoFeatureGAN,
+)
+from .latent_diffusion_qwen_image_edit_split_stage_dino_gan import (
+    LatentDiffusionQwenImageEditSplitStageDinoFeatureGAN,
+)
 from .latent_diffusion_image_edit_gan import (
     LatentDiffusionImageEditSplitStageGAN,
     LatentDiffusionImageEditStep2GAN,

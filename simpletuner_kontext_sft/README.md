@@ -89,6 +89,45 @@ MAX_TRAIN_STEPS=50 CKPT_INTERVAL=50 VAL_INTERVAL=50 \
 bash train_flux_kontext_sft_simpletuner.sh 1
 ```
 
+## Aspect-ratio bucket cache (do this once)
+
+SimpleTuner writes bucket JSON **next to the pair dirs** (not under `work_dirs/.../cache/`):
+
+```
+$PAIR_ROOT/train/edit/aspect_ratio_bucket_indices_pico-banana-edit.json
+$PAIR_ROOT/train/edit/aspect_ratio_bucket_metadata_pico-banana-edit.json
+# (+ reference / val counterparts)
+```
+
+**1st run (build + save buckets):**
+
+```bash
+# full pairs if not done
+bash prepare_pico_banana_simpletuner.sh
+
+# let SimpleTuner discover once (do NOT set SKIP_FILE_DISCOVERY)
+bash train_flux_kontext_sft_simpletuner.sh
+```
+
+Wait until log shows `Completed aspect bucket update` / `Cache File: .../aspect_ratio_bucket_indices_*.json`, then you can Ctrl+C if you only wanted the cache.
+
+**Later runs (reuse, no global re-scan):**
+
+```bash
+SKIP_FILE_DISCOVERY=aspect,metadata \
+bash train_flux_kontext_sft_simpletuner.sh
+```
+
+Optional: also skip VAE/text re-discovery after caches exist:
+
+```bash
+SKIP_FILE_DISCOVERY=aspect,metadata,vae,text \
+TEXT_CACHE_ONDEMAND=0 VAE_CACHE_ONDEMAND=0 \
+bash train_flux_kontext_sft_simpletuner.sh
+```
+
+Do **not** `rm` those `aspect_ratio_bucket_*.json`, and avoid `FORCE=1` on prepare (it rebuilds pair dirs and can wipe the JSON).
+
 ## Disk warning
 
 Pairing itself is cheap (links + `.txt`). SimpleTuner VAE/text embedding caches for ~257k pairs can need hundreds of GB. Prefer `MAX_SAMPLES=...` until you confirm free space.

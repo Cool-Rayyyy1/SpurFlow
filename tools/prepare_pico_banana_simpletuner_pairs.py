@@ -89,17 +89,34 @@ def materialize_split(
     out_edit.mkdir(parents=True, exist_ok=True)
     out_ref.mkdir(parents=True, exist_ok=True)
     written = 0
+    skipped_existing = 0
     for i, (src, tgt, prompt) in enumerate(rows):
         stem = f"{start_index + i:08d}"
         ext = _unified_ext(src, tgt)
         edit_img = out_edit / f"{stem}{ext}"
         ref_img = out_ref / f"{stem}{ext}"
         caption = out_edit / f"{stem}.txt"
+        # Resume-friendly: keep existing links/captions (same jsonl order => same stems).
+        if (
+            (edit_img.exists() or edit_img.is_symlink())
+            and (ref_img.exists() or ref_img.is_symlink())
+            and caption.is_file()
+        ):
+            skipped_existing += 1
+            continue
         _link_or_symlink(tgt, edit_img)
         _link_or_symlink(src, ref_img)
         caption.write_text(prompt + "\n", encoding="utf-8")
         written += 1
-    return written
+        if (written + skipped_existing) % 20000 == 0:
+            print(
+                f"[write] progress={written + skipped_existing}/{len(rows)} "
+                f"(new={written}, exist={skipped_existing})",
+                flush=True,
+            )
+    if skipped_existing:
+        print(f"[write] skipped_existing={skipped_existing} newly_written={written}", flush=True)
+    return written + skipped_existing
 
 
 def main() -> int:
