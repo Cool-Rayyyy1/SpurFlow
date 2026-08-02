@@ -9,7 +9,7 @@ _base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 #   same scale=4.0 and Qwen norm rescale
 #   loss matches CFG-combined velocities
 name = 'gmqwen_uedit_fixedeps_alpha_softsign01_truecfg_k16_2nfe_pico400k'
-qwen_model = '/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511'
+qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
 qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
@@ -146,9 +146,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_gaochengmin/projects/zhangyunzhe/new4/EditFlow/evaluation/imgedit_bench/'
+            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
             'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
+        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],
