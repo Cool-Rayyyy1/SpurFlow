@@ -374,27 +374,26 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
                 loss_d.backward()
             else:
                 loss_scaler.scale(loss_d).backward()
-            with torch.no_grad():
-                real_logits = self.discriminator(
-                    gan_real_images,
-                    step_indices=step_indices,
-                    crop_specs=crop_specs,
-                    cond_images=cond_images)
-                fake_logits = self.discriminator(
-                    fake_images.detach(),
-                    step_indices=step_indices,
-                    crop_specs=crop_specs,
-                    cond_images=cond_images)
-                d_extra = getattr(disc, '_last_gan_extra', None) or {}
-                if (not condition_on_source
-                        and crop_meta is not None
-                        and 'local_enabled' in crop_meta):
-                    d_extra['gan_unpaired_real_rate'] = float(
-                        (~crop_meta['local_enabled']).float().mean())
-                d_extra['dino_gan_condition_on_source'] = float(condition_on_source)
+            # Reuse D logits from the training forward (no second DINO pass before G).
+            d_extra = getattr(disc, '_last_gan_extra', None) or {}
+            if (not condition_on_source
+                    and crop_meta is not None
+                    and 'local_enabled' in crop_meta):
+                d_extra['gan_unpaired_real_rate'] = float(
+                    (~crop_meta['local_enabled']).float().mean())
+            d_extra['dino_gan_condition_on_source'] = float(condition_on_source)
+            real_logits = getattr(disc, '_last_logits_real', None)
+            fake_logits_d = getattr(disc, '_last_logits_fake', None)
+            if real_logits is not None and fake_logits_d is not None:
                 d_log_vars = disc.build_log_vars(
-                    real_logits, fake_logits, loss_d, extra=d_extra)
+                    real_logits, fake_logits_d, loss_d, extra=d_extra)
+            else:
+                d_log_vars = dict(d_extra)
+                d_log_vars['loss_d'] = float(loss_d.detach())
             log_vars.update(d_log_vars)
+            # Free D activations before the heavy PIID+GAN backward (FSDP unshard peak).
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
             _set_requires_grad(self.discriminator, False)
             loss_g_gan = self.discriminator(
@@ -410,15 +409,14 @@ class LatentDiffusionImageEditStep2AlphaDinoFeatureGAN(LatentDiffusionImageEditS
             else:
                 loss_scaler.scale(loss_generator).backward()
             _set_requires_grad(self.discriminator, True)
-            with torch.no_grad():
-                fake_logits = self.discriminator(
-                    fake_images,
-                    step_indices=step_indices,
-                    crop_specs=crop_specs,
-                    cond_images=cond_images)
-                g_extra = getattr(disc, '_last_gan_extra', None) or {}
+            g_extra = getattr(disc, '_last_gan_extra', None) or {}
+            fake_logits_g = getattr(disc, '_last_logits_fake', None)
+            if fake_logits_g is not None:
                 g_log_vars = disc.build_generator_log_vars(
-                    fake_logits, loss_g_gan, extra=g_extra)
+                    fake_logits_g, loss_g_gan, extra=g_extra)
+            else:
+                g_log_vars = dict(g_extra)
+                g_log_vars['loss_g_gan'] = float(loss_g_gan.detach())
             log_vars.update(g_log_vars)
             log_vars['loss'] = float((
                 loss_diffusion.detach() + (w_gan * gan_scale) * loss_g_gan.detach()))

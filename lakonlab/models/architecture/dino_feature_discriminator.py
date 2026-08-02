@@ -1244,6 +1244,9 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                     self._last_crop_meta['mask_fallback'].float().mean())
                 extra['local_enabled_rate'] = float(
                     self._last_crop_meta['local_enabled'].float().mean())
+            # Cache for logging so train_minibatch need not re-run DINO.
+            self._last_logits_real = logits_real.detach()
+            self._last_logits_fake = logits_fake.detach()
             self._last_gan_extra = extra
             return loss_d
 
@@ -1267,6 +1270,7 @@ class DinoAlphaMaskFeatureDiscriminator(DinoFeatureDiscriminator):
                 cond_images=cond_detached)
             loss_g, extra = self._weighted_gan_loss(
                 logits_fake, logits_fake, gan_mode='generator')
+            self._last_logits_fake = logits_fake.detach()
             self._last_gan_extra = extra
             return loss_g
 

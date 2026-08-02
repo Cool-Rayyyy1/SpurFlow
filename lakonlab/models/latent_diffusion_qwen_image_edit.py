@@ -20,6 +20,22 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
             # Qwen VAE expects [-1, 1] inputs, same as diffusers VaeImageProcessor.
             return self.vae.encode((images * 2 - 1).to(vae_dtype)).float()
 
+    def _encode_negative_prompt_embeds(self, data, prompt_embed_kwargs, bs, negative_prompt):
+        """Encode Qwen VL negative prompt (needs source image like the positive)."""
+        if 'negative_prompt_embed_kwargs' in data:
+            return data['negative_prompt_embed_kwargs']
+        assert self.text_encoder is not None, \
+            'Text encoder must be provided for encoding the negative prompt.'
+        if 'negative_prompt_kwargs' in data:
+            negative_prompt_kwargs = {k: v for k, v in data['negative_prompt_kwargs'].items()}
+        else:
+            negative_prompt_kwargs = dict(prompt=[negative_prompt] * bs)
+        if 'condition_source_images' in data:
+            negative_prompt_kwargs['condition_source_images'] = data['condition_source_images']
+        elif 'source_images' in data:
+            negative_prompt_kwargs['source_images'] = data['source_images']
+        return self.text_encoder(**negative_prompt_kwargs)
+
     def _prepare_train_minibatch_diffusion_args(self, data):
         if 'prompt_embed_kwargs' in data:
             prompt_embed_kwargs = data['prompt_embed_kwargs']
@@ -53,13 +69,33 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
         device = v.device
 
         diffusion_args = (self.patchify(latents), )
-        diffusion_kwargs = prompt_embed_kwargs.copy()
+
+        # Optional student true-CFG: double prompt embeds / image_latents like the
+        # teacher, but keep a single-batch x_ref for residual velocity.
+        student_guidance_scale = self.train_cfg.get('student_guidance_scale', None)
+        student_use_guidance = (
+            student_guidance_scale is not None
+            and student_guidance_scale != 0.0
+            and student_guidance_scale != 1.0)
+        if student_use_guidance:
+            negative_prompt = self.train_cfg.get(
+                'student_negative_prompt',
+                self.train_cfg.get('teacher_negative_prompt', ' '))
+            negative_prompt_embed_kwargs = self._encode_negative_prompt_embeds(
+                data, prompt_embed_kwargs, bs, negative_prompt)
+            diffusion_kwargs = self._cat_padded_prompt_embeds(
+                negative_prompt_embed_kwargs, prompt_embed_kwargs)
+        else:
+            diffusion_kwargs = prompt_embed_kwargs.copy()
 
         if 'source_images' in data:
             assert self.vae is not None, 'VAE must be provided for encoding source images.'
             source_latents = self._encode_images(data['source_images'])
             source_latents = self.patchify(source_latents)
-            diffusion_kwargs['image_latents'] = source_latents
+            image_latents = source_latents
+            if student_use_guidance:
+                image_latents = torch.cat([image_latents, image_latents], dim=0)
+            diffusion_kwargs['image_latents'] = image_latents
             if self.train_cfg.get('use_uedit', False) or self.train_cfg.get('use_uedit_new', False):
                 diffusion_kwargs['x_ref'] = source_latents
 
@@ -108,22 +144,9 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
                                 and teacher_guidance_scale != 0.0 and teacher_guidance_scale != 1.0)
 
         if teacher_use_guidance:
-            if 'negative_prompt_embed_kwargs' in data:
-                negative_prompt_embed_kwargs = data['negative_prompt_embed_kwargs']
-            else:
-                assert self.text_encoder is not None, \
-                    'Text encoder must be provided for encoding the teacher negative prompt.'
-                if 'negative_prompt_kwargs' in data:
-                    negative_prompt_kwargs = {k: v for k, v in data['negative_prompt_kwargs'].items()}
-                else:
-                    negative_prompt = self.train_cfg.get('teacher_negative_prompt', ' ')
-                    negative_prompt_kwargs = dict(prompt=[negative_prompt] * bs)
-                # Qwen VL prompt encoding requires the (resized) source image.
-                if 'condition_source_images' in data:
-                    negative_prompt_kwargs['condition_source_images'] = data['condition_source_images']
-                elif 'source_images' in data:
-                    negative_prompt_kwargs['source_images'] = data['source_images']
-                negative_prompt_embed_kwargs = self.text_encoder(**negative_prompt_kwargs)
+            negative_prompt = self.train_cfg.get('teacher_negative_prompt', ' ')
+            negative_prompt_embed_kwargs = self._encode_negative_prompt_embeds(
+                data, prompt_embed_kwargs, bs, negative_prompt)
             teacher_kwargs = self._cat_padded_prompt_embeds(
                 negative_prompt_embed_kwargs, prompt_embed_kwargs)
             # Match QwenImageEditPlusPipeline: after CFG extrapolation, rescale the
@@ -173,19 +196,13 @@ class LatentDiffusionQwenImageEdit(LatentDiffusionImageEdit):
         with torch.no_grad():
             use_guidance = guidance_scale != 0.0 and guidance_scale != 1.0
             if use_guidance:
-                if 'negative_prompt_embed_kwargs' in data:
-                    negative_prompt_embed_kwargs = data['negative_prompt_embed_kwargs']
-                elif 'negative_prompt_kwargs' in data:
-                    negative_prompt_kwargs = {k: v for k, v in data['negative_prompt_kwargs'].items()}
-                    if 'condition_source_images' in data:
-                        negative_prompt_kwargs['condition_source_images'] = data['condition_source_images']
-                    elif 'source_images' in data:
-                        negative_prompt_kwargs['source_images'] = data['source_images']
-                    negative_prompt_embed_kwargs = self.text_encoder(**negative_prompt_kwargs)
-                else:
-                    raise ValueError(
-                        'Either `negative_prompt_embed_kwargs` or `negative_prompt_kwargs` should be provided in the '
-                        'input data for classifier-free guidance.')
+                negative_prompt = cfg.get(
+                    'negative_prompt',
+                    self.train_cfg.get(
+                        'student_negative_prompt',
+                        self.train_cfg.get('teacher_negative_prompt', ' ')))
+                negative_prompt_embed_kwargs = self._encode_negative_prompt_embeds(
+                    data, prompt_embed_kwargs, bs, negative_prompt)
                 embed_kwargs = self._cat_padded_prompt_embeds(
                     negative_prompt_embed_kwargs, prompt_embed_kwargs)
             else:

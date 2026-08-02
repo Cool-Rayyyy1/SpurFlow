@@ -3,7 +3,6 @@
 import mmcv
 import torch
 
-from contextlib import nullcontext
 from copy import deepcopy
 try:
     from torch.distributed.fsdp import FSDPModule, FullyShardedDataParallel
@@ -130,6 +129,50 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
             if b_ema is not None:
                 b_ema.data.copy_(b_net.data)
 
+    def _snapshot_online_tensors(self, net):
+        """CPU copies of tensors needed for EMA (keeps GPU peak to one unshard)."""
+        param_snaps = {}
+        trainable_flags = {}
+        for name, p_net in net.named_parameters():
+            if self.trainable_only and not p_net.requires_grad:
+                continue
+            param_snaps[name] = p_net.detach().to('cpu', copy=True)
+            trainable_flags[name] = bool(p_net.requires_grad)
+        buffer_snaps = {
+            name: b.detach().to('cpu', copy=True)
+            for name, b in net.named_buffers()
+        }
+        return param_snaps, trainable_flags, buffer_snaps
+
+    def _apply_snapshots_to_ema(
+            self, ema, param_snaps, trainable_flags, buffer_snaps, runner,
+            interp_cfg):
+        ema_params = dict(ema.named_parameters())
+        matched_params = 0
+        for name, p_net_cpu in param_snaps.items():
+            p_ema = ema_params.get(name)
+            if p_ema is None:
+                continue
+            matched_params += 1
+            p_net = p_net_cpu.to(device=p_ema.device, dtype=p_ema.dtype)
+            trainable = trainable_flags[name]
+            if runner.iter < self.start_iter:
+                p_ema.data.copy_(p_net)
+            else:
+                p_ema.data.copy_(self.interp_func(
+                    p_net, p_ema, trainable=trainable, **interp_cfg))
+        if param_snaps and matched_params == 0:
+            raise RuntimeError(
+                'EMA update matched zero parameters. Check whether the online '
+                'and EMA modules have inconsistent wrapper prefixes.')
+
+        ema_buffers = dict(ema.named_buffers())
+        for name, b_cpu in buffer_snaps.items():
+            b_ema = ema_buffers.get(name)
+            if b_ema is not None:
+                b_ema.data.copy_(
+                    b_cpu.to(device=b_ema.device, dtype=b_ema.dtype))
+
     def after_train_iter(self, runner):
         if not self.every_n_iters(runner, self.interval):
             return
@@ -158,16 +201,30 @@ class ExponentialMovingAverageHookMod(ExponentialMovingAverageHook):
                 ema_fsdp = self._is_fsdp_module(ema)
                 if net_fsdp or ema_fsdp:
                     assert FullyShardedDataParallel is not None
-                    net_ctx = (
-                        FullyShardedDataParallel.summon_full_params(
-                            net, writeback=False, rank0_only=False)
-                        if net_fsdp else nullcontext())
-                    ema_ctx = (
-                        FullyShardedDataParallel.summon_full_params(
-                            ema, writeback=True, rank0_only=False)
-                        if ema_fsdp else nullcontext())
-                    with net_ctx, ema_ctx:
-                        self._update_module_pair(net, ema, runner, _interp_cfg)
+                    # Sequential summon: holding net+ema fully unsharded at once
+                    # OOMs on Qwen+GAN (~80GB). Snapshot online tensors to CPU,
+                    # reshard, then write into EMA under a separate summon.
+                    if net_fsdp:
+                        with FullyShardedDataParallel.summon_full_params(
+                                net, writeback=False, rank0_only=False):
+                            param_snaps, trainable_flags, buffer_snaps = (
+                                self._snapshot_online_tensors(net))
+                    else:
+                        param_snaps, trainable_flags, buffer_snaps = (
+                            self._snapshot_online_tensors(net))
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if ema_fsdp:
+                        with FullyShardedDataParallel.summon_full_params(
+                                ema, writeback=True, rank0_only=False):
+                            self._apply_snapshots_to_ema(
+                                ema, param_snaps, trainable_flags,
+                                buffer_snaps, runner, _interp_cfg)
+                    else:
+                        self._apply_snapshots_to_ema(
+                            ema, param_snaps, trainable_flags, buffer_snaps,
+                            runner, _interp_cfg)
+                    del param_snaps, trainable_flags, buffer_snaps
                 else:
                     self._update_module_pair(net, ema, runner, _interp_cfg)
 

@@ -38,6 +38,10 @@ class _ArcQwenEditAlphaImageTransformer2DModel(_ArcQwenEditImageTransformer2DMod
         super().init_weights()
         constant_init(self.proj_out_alpha.to_empty(device='cpu'), val=0)
 
+    def _activate_alpha(self, logits: torch.Tensor) -> torch.Tensor:
+        """Map alpha logits to (0, 1); subclasses may change the mapping."""
+        return torch.sigmoid(logits)
+
     def forward(
             self,
             hidden_states: torch.Tensor,
@@ -128,7 +132,7 @@ class _ArcQwenEditAlphaImageTransformer2DModel(_ArcQwenEditImageTransformer2DMod
             bs, seq_len, self.num_gaussians, self.logweights_channels).log_softmax(dim=-2)
         out_log_gammas = self.proj_out_loggamma(hidden_states).reshape(
             bs, seq_len, self.num_gammas, self.logweights_channels)
-        out_alpha = torch.sigmoid(
+        out_alpha = self._activate_alpha(
             self.proj_out_alpha(hidden_states).reshape(
                 bs, seq_len, 1, self.logweights_channels))
 

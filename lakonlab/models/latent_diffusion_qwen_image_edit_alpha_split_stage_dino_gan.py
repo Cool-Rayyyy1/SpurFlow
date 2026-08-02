@@ -32,8 +32,11 @@ class LatentDiffusionQwenImageEditAlphaSplitStageDinoGAN(LatentDiffusionQwenImag
 
     _decode_rollout_latents_to_images = (
         LatentDiffusionImageEditSplitStageGAN._decode_rollout_latents_to_images)
-    _match_spatial = LatentDiffusionImageEditStep2AlphaDinoFeatureGAN._match_spatial
-    _prepare_gan_real_images = (
+    # Must re-wrap: assigning a @staticmethod via Class.fn drops the descriptor
+    # and Python would bind `self` as the first arg on instance call.
+    _match_spatial = staticmethod(
+        LatentDiffusionImageEditStep2AlphaDinoFeatureGAN._match_spatial)
+    _prepare_gan_real_images = staticmethod(
         LatentDiffusionImageEditStep2AlphaDinoFeatureGAN._prepare_gan_real_images)
 
     def _prepare_train_minibatch_args(self, data, running_status=None):

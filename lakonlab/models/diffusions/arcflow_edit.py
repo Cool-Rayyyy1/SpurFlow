@@ -7,38 +7,140 @@ from mmgen.models.architectures.common import get_module_device
 from mmgen.models.builder import MODULES
 
 from .arcflow import ArcFlowImitation, ArcFlowImitationBase
+from .gaussian_flow import cfg_norm_rescale, guidance_jit
 from .policies import ArcFlowEditPolicy, ArcFlowEditNewPolicy, ArcFlowEditNewAlphaPolicy
 from lakonlab.utils import module_eval
 
 
-def _mixture_weight_stats_dict(policy, step_id: int) -> dict:
-    """Summarize K-mixture logweights before mean/mode reduce.
+def _as_output_dict(denoising_output):
+    if isinstance(denoising_output, dict):
+        return dict(denoising_output)
+    if hasattr(denoising_output, 'items'):
+        return {k: v for k, v in denoising_output.items()}
+    raise TypeError(
+        f'Unsupported denoising output type for CFG: {type(denoising_output)}')
 
-    Returns spatial-mean softmax weights and argmax histogram over locations.
+
+def _chunk_output_dict(output_dict, num_batches):
+    neg, pos = {}, {}
+    for key, value in output_dict.items():
+        if torch.is_tensor(value) and value.size(0) == 2 * num_batches:
+            neg[key], pos[key] = value.chunk(2, dim=0)
+        else:
+            neg[key] = pos[key] = value
+    return neg, pos
+
+
+def _cfg_combine_edit_output(neg, pos, guidance_scale):
+    """True-CFG combine of edit heads: ``s * pos - (s - 1) * neg``."""
+    scale = float(guidance_scale)
+    cfg_keys = {'deltax', 'alpha', 'epsilon', 'means', 'means_u'}
+    out = {}
+    for key, value_pos in pos.items():
+        value_neg = neg.get(key)
+        if (
+                key in cfg_keys
+                and torch.is_tensor(value_pos)
+                and torch.is_tensor(value_neg)):
+            combined = value_pos + (value_pos - value_neg) * (scale - 1.0)
+            if key == 'alpha':
+                combined = combined.clamp(0.0, 1.0)
+            out[key] = combined
+        else:
+            out[key] = value_pos
+    return out
+
+
+class TrueCFGEditPolicyPair:
+    """Cond/uncond edit policies with teacher-aligned velocity CFG.
+
+    ``u = u_pos + (scale - 1) * (u_pos - u_neg)``, optionally followed by the
+    same Qwen per-token norm rescale used by the teacher.
     """
-    logweights = policy.denoising_output_x_0['logweights'].float()
-    # (B, K, ...)
-    weights = torch.softmax(logweights, dim=1)
-    k = int(logweights.size(1))
-    reduce_dims = tuple(i for i in range(weights.dim()) if i != 1)
-    mean_weights = weights.mean(dim=reduce_dims).detach().cpu().tolist()
-    mode_idx = logweights.argmax(dim=1).reshape(-1)
-    counts = torch.bincount(mode_idx.detach().cpu(), minlength=k).tolist()
-    total = float(max(sum(counts), 1))
-    mode_frac = [c / total for c in counts]
-    dominant_k = int(max(range(k), key=lambda i: counts[i]))
-    # entropy of spatial-mean weights
-    mw = torch.tensor(mean_weights, dtype=torch.float32).clamp_min(1e-12)
-    entropy = float((-(mw * mw.log()).sum()).item())
-    return {
-        'step': int(step_id),
-        'num_gaussians': k,
-        'mean_weights': [float(x) for x in mean_weights],
-        'mode_counts': [int(c) for c in counts],
-        'mode_frac': [float(x) for x in mode_frac],
-        'dominant_k': dominant_k,
-        'mean_weight_entropy': entropy,
-    }
+
+    def __init__(
+            self,
+            policy_pos,
+            policy_neg,
+            guidance_scale,
+            guidance_norm_rescale=False,
+            guidance_norm_rescale_patch_size=2):
+        self.policy_pos = policy_pos
+        self.policy_neg = policy_neg
+        self.guidance_scale = float(guidance_scale)
+        self.guidance_norm_rescale = bool(guidance_norm_rescale)
+        self.guidance_norm_rescale_patch_size = int(guidance_norm_rescale_patch_size)
+        self.path_epsilon = policy_pos.path_epsilon
+        self.x_ref = policy_pos.x_ref
+        self.x_t_src = policy_pos.x_t_src
+        self.sigma_t_src = policy_pos.sigma_t_src
+        self.ndim = policy_pos.ndim
+        self.eps = getattr(policy_pos, 'eps', 1e-4)
+        self.checkpointing = getattr(policy_pos, 'checkpointing', True)
+        self.denoising_output_x_0 = policy_pos.denoising_output_x_0
+        if hasattr(policy_pos, 'alpha') and hasattr(policy_neg, 'alpha'):
+            alpha = policy_pos.alpha + (
+                policy_pos.alpha - policy_neg.alpha) * (self.guidance_scale - 1.0)
+            self.alpha = alpha.clamp(0.0, 1.0)
+        else:
+            self.alpha = getattr(policy_pos, 'alpha', None)
+
+    def _cfg_u(self, u_pos, u_neg):
+        bias = guidance_jit(u_pos, u_neg, self.guidance_scale, False)
+        u = u_pos + bias
+        if self.guidance_norm_rescale:
+            u = cfg_norm_rescale(
+                u_pos, u, patch_size=self.guidance_norm_rescale_patch_size)
+        return u
+
+    def velocity(self, sigma_t_src, sigma_t):
+        return self._cfg_u(
+            self.policy_pos.velocity(sigma_t_src, sigma_t),
+            self.policy_neg.velocity(sigma_t_src, sigma_t))
+
+    def train_velocity(self, sigma_t_src, sigma_t):
+        return self.velocity(sigma_t_src, sigma_t)
+
+    def loss_velocity(self, sigma_t_src, sigma_t):
+        return self.velocity(sigma_t_src, sigma_t)
+
+    def compute_pred_delta(self, sigma_t_src, sigma_t):
+        d_pos = self.policy_pos.compute_pred_delta(sigma_t_src, sigma_t)
+        d_neg = self.policy_neg.compute_pred_delta(sigma_t_src, sigma_t)
+        return d_pos + (d_pos - d_neg) * (self.guidance_scale - 1.0)
+
+    def copy(self):
+        return TrueCFGEditPolicyPair(
+            self.policy_pos.copy(),
+            self.policy_neg.copy(),
+            self.guidance_scale,
+            guidance_norm_rescale=self.guidance_norm_rescale,
+            guidance_norm_rescale_patch_size=self.guidance_norm_rescale_patch_size)
+
+    def detach_(self):
+        self.policy_pos.detach_()
+        self.policy_neg.detach_()
+        if self.alpha is not None:
+            self.alpha = self.alpha.detach()
+        self.denoising_output_x_0 = self.policy_pos.denoising_output_x_0
+        return self
+
+    def detach(self):
+        return self.copy().detach_()
+
+    def dropout_(self, p):
+        self.policy_pos.dropout_(p)
+        self.policy_neg.dropout_(p)
+        self.denoising_output_x_0 = self.policy_pos.denoising_output_x_0
+        return self
+
+    def temperature_(self, temperature):
+        if hasattr(self.policy_pos, 'temperature_'):
+            self.policy_pos.temperature_(temperature)
+        if hasattr(self.policy_neg, 'temperature_'):
+            self.policy_neg.temperature_(temperature)
+        self.denoising_output_x_0 = self.policy_pos.denoising_output_x_0
+        return self
 
 
 @MODULES.register_module()
@@ -68,6 +170,9 @@ class ArcFlowEditImitation(ArcFlowImitation):
             integrated_delta = integral of pred_delta from deltax/logweights/loggammas
         Edit offsets (alpha scales x_ref only, not the mixture):
             x_end = x_start - path_epsilon*dt + alpha*x_ref*dt + integrated_delta
+
+        For ``TrueCFGEditPolicyPair``, integrate cond/uncond separately and apply
+        teacher-aligned CFG (+ optional norm rescale) on the interval velocity.
         """
         num_batches = x_t_start.size(0)
         ndim = x_t_start.dim()
@@ -75,6 +180,18 @@ class ArcFlowEditImitation(ArcFlowImitation):
         sigma_t_end = self.timestep_sampler.warp_t(raw_t_end, seq_len=seq_len)
         sigma_t_end = sigma_t_end.reshape(num_batches, *((ndim - 1) * [1]))
         dt_step = (sigma_t_start - sigma_t_end).clamp(min=eps)
+
+        if isinstance(policy, TrueCFGEditPolicyPair):
+            x_end_pos, _, t_end = self.momentum_integration(
+                sigma_t_src, x_t_start, sigma_t_start, raw_t_end,
+                policy.policy_pos, eps=eps, seq_len=seq_len)
+            x_end_neg, _, _ = self.momentum_integration(
+                sigma_t_src, x_t_start, sigma_t_start, raw_t_end,
+                policy.policy_neg, eps=eps, seq_len=seq_len)
+            u_pos = (x_t_start - x_end_pos) / dt_step
+            u_neg = (x_t_start - x_end_neg) / dt_step
+            u = policy._cfg_u(u_pos, u_neg)
+            return x_t_start - u * dt_step, sigma_t_end, t_end
 
         if isinstance(policy, (ArcFlowEditPolicy, ArcFlowEditNewPolicy)):
             if policy.path_epsilon is None:
@@ -97,6 +214,81 @@ class ArcFlowEditImitation(ArcFlowImitation):
         return ArcFlowImitationBase.momentum_integration(
             self, sigma_t_src, x_t_start, sigma_t_start, raw_t_end,
             policy, eps=eps, seq_len=seq_len)
+
+    def policy_average_u_momentum(
+            self,
+            sigma_t_src: torch.Tensor,
+            x_t_start: torch.Tensor,
+            sigma_t_start: torch.Tensor,
+            raw_t_start: torch.Tensor,
+            raw_t_end: torch.Tensor,
+            total_substeps: int,
+            policy,
+            seq_len=None,
+            eps=1e-4):
+        if isinstance(policy, TrueCFGEditPolicyPair):
+            u_pos = ArcFlowImitationBase.policy_average_u_momentum(
+                self, sigma_t_src, x_t_start, sigma_t_start, raw_t_start, raw_t_end,
+                total_substeps, policy.policy_pos, seq_len=seq_len, eps=eps)
+            u_neg = ArcFlowImitationBase.policy_average_u_momentum(
+                self, sigma_t_src, x_t_start, sigma_t_start, raw_t_start, raw_t_end,
+                total_substeps, policy.policy_neg, seq_len=seq_len, eps=eps)
+            return policy._cfg_u(u_pos, u_neg)
+        return ArcFlowImitationBase.policy_average_u_momentum(
+            self, sigma_t_src, x_t_start, sigma_t_start, raw_t_start, raw_t_end,
+            total_substeps, policy, seq_len=seq_len, eps=eps)
+
+    def _build_student_policy(
+            self,
+            x_t_src,
+            t_src,
+            sigma_t_src,
+            x_ref,
+            policy_kwargs,
+            num_batches,
+            kwargs):
+        """Build student policy; optionally true-CFG over cond/uncond branches."""
+        student_guidance_scale = self.train_cfg.get('student_guidance_scale', None)
+        use_student_cfg = (
+            student_guidance_scale is not None
+            and float(student_guidance_scale) > 1.0)
+        if not use_student_cfg:
+            denoising_output = self.pred(x_t_src, t_src, **kwargs)
+            return self.policy_class(
+                denoising_output, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
+
+        image_latents = kwargs.get('image_latents')
+        prompt = kwargs.get('encoder_hidden_states')
+        if prompt is not None and prompt.size(0) != 2 * num_batches:
+            raise ValueError(
+                'student_guidance_scale>1 requires doubled prompt embeds '
+                f'(got batch={prompt.size(0)}, expected {2 * num_batches}).')
+        if image_latents is not None and image_latents.size(0) != 2 * num_batches:
+            raise ValueError(
+                'student_guidance_scale>1 requires doubled image_latents '
+                f'(got batch={image_latents.size(0)}, expected {2 * num_batches}).')
+        if x_ref.size(0) != num_batches:
+            raise ValueError(
+                'student true-CFG keeps a single-batch x_ref for residual velocity '
+                f'(got batch={x_ref.size(0)}, expected {num_batches}).')
+
+        x_t_input = torch.cat([x_t_src, x_t_src], dim=0)
+        t_input = torch.cat([t_src, t_src], dim=0)
+        denoising_output = self.pred(x_t_input, t_input, **kwargs)
+        out_neg, out_pos = _chunk_output_dict(
+            _as_output_dict(denoising_output), num_batches)
+        policy_pos = self.policy_class(
+            out_pos, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
+        policy_neg = self.policy_class(
+            out_neg, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
+        return TrueCFGEditPolicyPair(
+            policy_pos,
+            policy_neg,
+            student_guidance_scale,
+            guidance_norm_rescale=self.train_cfg.get(
+                'student_guidance_norm_rescale', True),
+            guidance_norm_rescale_patch_size=self.train_cfg.get(
+                'student_guidance_norm_rescale_patch_size', 2))
 
     def _direct_delta_loss(self, x_0, policy, t_src, sigma_t_src):
         """Anchor GM mixture pred_delta to the edit endpoint decomposition.
@@ -127,7 +319,7 @@ class ArcFlowEditImitation(ArcFlowImitation):
         w = self.train_cfg.get('direct_delta_loss_weight', 0.0)
         if w <= 0:
             return loss, log_vars
-        if hasattr(policy, 'alpha'):
+        if getattr(policy, 'alpha', None) is not None:
             loss_direct = self._direct_delta_loss(x_0, policy, t_src, sigma_t_src)
             loss = loss + w * loss_direct
             log_vars['loss_direct_delta'] = float(loss_direct.detach())
@@ -181,9 +373,8 @@ class ArcFlowEditImitation(ArcFlowImitation):
             x_t_src, _, _ = self.sample_forward_diffusion(x_0, t_src, path_epsilon)
             policy_kwargs['path_epsilon'] = path_epsilon
 
-        denoising_output = self.pred(x_t_src, t_src, **kwargs)
-        policy = self.policy_class(
-            denoising_output, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
+        policy = self._build_student_policy(
+            x_t_src, t_src, sigma_t_src, x_ref, policy_kwargs, num_batches, kwargs)
 
         loss_diffusion, _, raw_t_dst = self.piid_segment_momentum(
             teacher, policy, x_t_src, raw_t_src, sigma_t_src, teacher_ratio, segment_size,
@@ -194,6 +385,8 @@ class ArcFlowEditImitation(ArcFlowImitation):
             loss, log_vars, x_0, policy, t_src, sigma_t_src)
         log_vars.update(self.flow_loss.log_vars)
         log_vars.update(loss_diffusion=float(loss_diffusion.detach()))
+        if isinstance(policy, TrueCFGEditPolicyPair):
+            log_vars['student_guidance_scale'] = float(policy.guidance_scale)
 
         return loss, log_vars
 
@@ -215,11 +408,24 @@ class ArcFlowEditImitation(ArcFlowImitation):
         device = x_t_src.device
         x_t_src = x_t_src.float()
         path_epsilon = path_epsilon.float()
+        x_ref = x_ref.float()
         ndim = x_t_src.dim()
         assert ndim in [4, 5], f'Invalid x_t_src shape: {x_t_src.shape}. Expected 4D or 5D tensor.'
 
         cfg = deepcopy(self.test_cfg)
         cfg.update(test_cfg_override)
+        if guidance_scale is None:
+            guidance_scale = cfg.get('guidance_scale', 1.0)
+        use_guidance = (
+            guidance_scale is not None
+            and float(guidance_scale) > 1.0)
+        if use_guidance:
+            if x_ref.size(0) != 2 * num_batches:
+                raise ValueError(
+                    'True CFG requires doubled `image_latents` / prompt embeds '
+                    f'(got image_latents batch={x_ref.size(0)}, noise batch={num_batches}).')
+            # val_step cats [neg, pos]; keep a single x_ref for integration.
+            x_ref = x_ref.chunk(2, dim=0)[1]
 
         eps = cfg.get('eps', 1e-4)
         nfe = cfg['nfe']
@@ -228,6 +434,9 @@ class ArcFlowEditImitation(ArcFlowImitation):
         # If True: final NFE predicts pred_delta and returns x_ref (+alpha) +
         # pred_delta as x0, skipping the last velocity integration step.
         step2_direct_x0 = bool(cfg.get('step2_direct_x0', False))
+        guidance_norm_rescale = cfg.get('guidance_norm_rescale', False)
+        guidance_norm_rescale_patch_size = cfg.get(
+            'guidance_norm_rescale_patch_size', 2)
 
         raw_t_src = torch.ones((num_batches,), dtype=torch.float32, device=device)
         sigma_t_src = self.timestep_sampler.warp_t(raw_t_src, seq_len=seq_len).reshape(
@@ -236,10 +445,6 @@ class ArcFlowEditImitation(ArcFlowImitation):
 
         if show_pbar:
             pbar = mmcv.ProgressBar(nfe)
-
-        dump_mixture_stats = bool(cfg.get('dump_mixture_stats', False)) or bool(
-            getattr(self, '_dump_mixture_stats', False))
-        mixture_stats = []
 
         for step_id in range(nfe):
             is_final_step = step_id == nfe - 1
@@ -250,31 +455,37 @@ class ArcFlowEditImitation(ArcFlowImitation):
 
             raw_t_dst = raw_t_src - segment_size
 
-            denoising_output = self.pred(x_t_src, t_src, **kwargs)
-            policy = self.policy_class(
-                denoising_output, x_t_src, sigma_t_src, x_ref=x_ref,
-                path_epsilon=path_epsilon, eps=eps)
-            # Collect raw (pre-mode) mixture weight distribution for diagnostics.
-            if dump_mixture_stats and hasattr(policy, 'denoising_output_x_0'):
-                mixture_stats.append(
-                    _mixture_weight_stats_dict(policy, step_id=step_id))
-            # mixture_reduce: 'mean' (default) | 'mode' (argmax component only)
-            mixture_reduce = str(
-                cfg.get('mixture_reduce', getattr(self, '_mixture_reduce', 'mean'))
-            ).lower()
-            if mixture_reduce == 'mode':
-                if not hasattr(policy, 'mode_'):
-                    raise ValueError(
-                        "test_cfg.mixture_reduce='mode' requires a policy with mode_().")
-                policy.mode_()
-            elif not is_final_step:
+            if use_guidance:
+                x_t_input = torch.cat([x_t_src, x_t_src], dim=0)
+                t_input = torch.cat([t_src, t_src], dim=0)
+                denoising_output = self.pred(x_t_input, t_input, **kwargs)
+                out_neg, out_pos = _chunk_output_dict(
+                    _as_output_dict(denoising_output), num_batches)
+                policy_pos = self.policy_class(
+                    out_pos, x_t_src, sigma_t_src, x_ref=x_ref,
+                    path_epsilon=path_epsilon, eps=eps)
+                policy_neg = self.policy_class(
+                    out_neg, x_t_src, sigma_t_src, x_ref=x_ref,
+                    path_epsilon=path_epsilon, eps=eps)
+                policy = TrueCFGEditPolicyPair(
+                    policy_pos,
+                    policy_neg,
+                    guidance_scale,
+                    guidance_norm_rescale=guidance_norm_rescale,
+                    guidance_norm_rescale_patch_size=guidance_norm_rescale_patch_size)
+            else:
+                denoising_output = self.pred(x_t_src, t_src, **kwargs)
+                policy = self.policy_class(
+                    denoising_output, x_t_src, sigma_t_src, x_ref=x_ref,
+                    path_epsilon=path_epsilon, eps=eps)
+            if not is_final_step:
                 temperature = cfg.get('temperature', 1.0)
                 policy.temperature_(temperature)
 
             if is_final_step and step2_direct_x0:
                 # Step-2 shortcut: x0 = alpha*x_ref + pred_delta (or x_ref + pred_delta).
                 pred_delta = policy.compute_pred_delta(sigma_t_src, sigma_t_src)
-                if hasattr(policy, 'alpha'):
+                if hasattr(policy, 'alpha') and policy.alpha is not None:
                     x_t_src = policy.alpha * policy.x_ref + pred_delta
                 else:
                     x_t_src = policy.x_ref + pred_delta
@@ -297,9 +508,6 @@ class ArcFlowEditImitation(ArcFlowImitation):
         if show_pbar:
             sys.stdout.write('\n')
 
-        # Prefer object.__setattr__ so nn.Module bookkeeping cannot drop the attr.
-        object.__setattr__(
-            self, '_last_mixture_stats', mixture_stats if dump_mixture_stats else None)
         return x_t_src.to(ori_dtype)
 
 
@@ -1574,17 +1782,9 @@ class ArcFlowEditImitationStep2GAN(ArcFlowEditImitation):
                 from lakonlab.models.architecture.dinov3_discriminator import split_stage_gan_loss_scale
                 gan_scale = split_stage_gan_loss_scale(running_status, self.train_cfg)
             log_vars['gan_loss_scale'] = gan_scale
-            # Roll out endpoint when any endpoint loss is active (GAN / x0 / HF).
-            need_endpoint = (
-                gan_scale > 0
-                or float(self.train_cfg.get('split_stage_gan_loss_weight', 0.0)) > 0
-                or float(self.train_cfg.get('x0_loss_weight', 0.0)) > 0
-                or float(self.train_cfg.get('hf_loss_weight', 0.0)) > 0
-                or float(self.train_cfg.get('lpips_loss_weight', 0.0)) > 0
-                or bool(self.train_cfg.get('force_step2_rollout', False)))
             step2_latent = None
             step2_alpha = None
-            if need_endpoint:
+            if gan_scale > 0:
                 rollout = self._rollout_nfe_latent(
                     x_ref, path_epsilon, kwargs, return_step2_alpha=True)
                 step2_latent, step2_alpha = rollout
