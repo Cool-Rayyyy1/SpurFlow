@@ -161,6 +161,10 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
                 bs, k - 1, 1, h * self.patch_size, w * self.patch_size)
         return mp
 
+    def _model_dtype(self):
+        """Backbone compute dtype (bf16); heads may stay fp32 via flex_freeze."""
+        return self.x_embedder.weight.dtype
+
     def _forward_features(
             self,
             hidden_states: torch.Tensor,
@@ -171,9 +175,15 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
             joint_attention_kwargs: Optional[Dict[str, Any]] = None):
         """Flux2 backbone through ``norm_out`` (skip ``proj_out``)."""
         num_txt_tokens = encoder_hidden_states.shape[1]
+        dtype = self._model_dtype()
+        hidden_states = hidden_states.to(dtype=dtype)
+        encoder_hidden_states = encoder_hidden_states.to(dtype=dtype)
 
-        timestep = timestep.to(hidden_states.dtype) * 1000
+        # Timesteps sinusoidal emb is often float32; cast to weight dtype before Linear.
+        timestep = timestep.to(dtype=dtype) * 1000
         temb = self.time_guidance_embed(timestep, None)
+        if temb.dtype != dtype:
+            temb = temb.to(dtype=dtype)
 
         double_stream_mod_img = self.double_stream_modulation_img(temb)
         double_stream_mod_txt = self.double_stream_modulation_txt(temb)
@@ -264,8 +274,9 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
 
         hidden_states = self.patchify(hidden_states)
         bs, c, h, w = hidden_states.size()
-        dtype = hidden_states.dtype
         device = hidden_states.device
+        # Latents from VAE path are float32; backbone weights are bf16.
+        dtype = self._model_dtype()
         tokens, _, _ = self._pack_tokens(hidden_states)
         target_seq_len = tokens.size(1)
         img_ids = _prepare_latent_ids(hidden_states).to(device=device)
@@ -289,14 +300,16 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
             txt_ids = txt_ids.to(device=device)
 
         features = self._forward_features(
-            hidden_states=tokens.to(dtype),
-            encoder_hidden_states=encoder_hidden_states.to(dtype),
+            hidden_states=tokens.to(dtype=dtype),
+            encoder_hidden_states=encoder_hidden_states.to(dtype=dtype),
             timestep=timestep,
             img_ids=img_ids,
             txt_ids=txt_ids,
             joint_attention_kwargs=joint_attention_kwargs,
         )
         features = features[:, :target_seq_len]
+        # ArcFlow heads are freeze-excluded fp32; cast before head Linear.
+        features = features.float()
         seq_len = features.size(1)
 
         out_deltax = self.proj_out_deltax(features).reshape(

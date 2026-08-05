@@ -219,8 +219,9 @@ else:
 
             hidden_states = self.patchify(hidden_states)
             bs, c, h, w = hidden_states.size()
-            dtype = hidden_states.dtype
             device = hidden_states.device
+            # Match backbone weight dtype (bf16); latents arrive as float32.
+            dtype = self.x_embedder.weight.dtype
             tokens, _, _ = self._pack_tokens(hidden_states)
             target_seq_len = tokens.size(1)
             img_ids = _prepare_latent_ids(hidden_states).to(device=device)
@@ -244,9 +245,9 @@ else:
                 txt_ids = txt_ids.to(device=device)
 
             output = super().forward(
-                hidden_states=tokens.to(dtype),
-                encoder_hidden_states=encoder_hidden_states.to(dtype),
-                timestep=timestep,
+                hidden_states=tokens.to(dtype=dtype),
+                encoder_hidden_states=encoder_hidden_states.to(dtype=dtype),
+                timestep=timestep.to(dtype=dtype),
                 img_ids=img_ids,
                 txt_ids=txt_ids,
                 guidance=None,
