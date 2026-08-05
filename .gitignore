@@ -10,3 +10,31 @@ __pycache__/
 *.py[cod]
 evaluation/outputs/
 cuda_*.run
+
+# evaluation outputs
+evaluation/**/outputs/
+evaluation/**/results/
+
+# generated images
+*.png
+*.jpg
+*.jpeg
+
+# checkpoints
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# datasets
+dataset/
+data/
+
+# logs
+wandb/
+logs/
+
+# python cache
+__pycache__/
+*.pyc

@@ -8,6 +8,19 @@ from diffusers.pipelines import FluxPipeline, QwenImagePipeline, StableDiffusion
 from diffusers.pipelines.qwenimage.pipeline_qwenimage_edit_plus import QwenImageEditPlusPipeline
 from mmgen.models.builder import MODULES
 
+try:
+    from diffusers.models import AutoencoderKLFlux2
+    from diffusers import Flux2KleinPipeline
+except ImportError:  # pragma: no cover - older diffusers without FLUX.2
+    AutoencoderKLFlux2 = None
+    Flux2KleinPipeline = None
+
+try:
+    from diffusers import AutoencoderKLFlux2, Flux2KleinPipeline
+except ImportError:  # pragma: no cover - older diffusers without FLUX.2
+    AutoencoderKLFlux2 = None
+    Flux2KleinPipeline = None
+
 # Suppress truncation warnings from transformers and diffusers
 for name in (
         'transformers.tokenization_utils_base',
@@ -148,6 +161,127 @@ class PretrainedVAEQwenImage(nn.Module):
         latents_std = torch.tensor(self.vae.config.latents_std, device=device, dtype=dtype).view(
             1, self.vae.config.z_dim, 1, 1, 1)
         return self.vae.decode(code.unsqueeze(-3) * latents_std + latents_mean, return_dict=False)[0].squeeze(-3)
+
+
+@MODULES.register_module()
+class PretrainedVAEFlux2(nn.Module):
+    """FLUX.2 ``AutoencoderKLFlux2`` wrapper (32-ch latents + BN normalize).
+
+    Encode returns **unpatched** ``(B, 32, H/8, W/8)`` latents after the
+    Flux2 BN affine used by ``Flux2KleinPipeline._encode_vae_image``. EditFlow
+    ``patchify(patch_size=2)`` then packs to the transformer's 128-ch tokens.
+    """
+
+    def __init__(self,
+                 from_pretrained=None,
+                 subfolder='vae',
+                 freeze=True,
+                 eval_mode=True,
+                 torch_dtype='bfloat16',
+                 **kwargs):
+        super().__init__()
+        if AutoencoderKLFlux2 is None:
+            raise ImportError(
+                'PretrainedVAEFlux2 requires diffusers with AutoencoderKLFlux2 '
+                '(diffusers>=0.37).')
+        if torch_dtype is not None:
+            kwargs.update(torch_dtype=getattr(torch, torch_dtype))
+        self.vae = AutoencoderKLFlux2.from_pretrained(
+            from_pretrained, subfolder=subfolder, **kwargs)
+        self.freeze = freeze
+        self.eval_mode = eval_mode
+        if self.freeze:
+            self.requires_grad_(False)
+        if self.eval_mode:
+            self.eval()
+
+    def train(self, mode=True):
+        mode = mode and (not self.eval_mode)
+        return super().train(mode)
+
+    def _bn_stats(self, latents):
+        mean = self.vae.bn.running_mean.view(1, -1, 1, 1).to(
+            device=latents.device, dtype=latents.dtype)
+        std = torch.sqrt(
+            self.vae.bn.running_var.view(1, -1, 1, 1) + self.vae.config.batch_norm_eps
+        ).to(device=latents.device, dtype=latents.dtype)
+        return mean, std
+
+    def encode(self, img):
+        # Match Flux2KleinPipeline._encode_vae_image before spatial patchify:
+        # sample latents then apply VAE BN normalize in 32-ch space.
+        latents = self.vae.encode(img).latent_dist.mode()
+        # Pipeline patchifies first then BN on 128-ch; BN buffers are sized for
+        # the post-patchify channel layout. Apply the same pack-then-BN-then-
+        # unpack so callers still see 32-ch unpatched latents.
+        b, c, h, w = latents.shape
+        packed = latents.view(b, c, h // 2, 2, w // 2, 2).permute(
+            0, 1, 3, 5, 2, 4).reshape(b, c * 4, h // 2, w // 2)
+        mean, std = self._bn_stats(packed)
+        packed = (packed - mean) / std
+        return packed.reshape(b, c, 2, 2, h // 2, w // 2).permute(
+            0, 1, 4, 2, 5, 3).reshape(b, c, h, w)
+
+    def decode(self, code):
+        # Inverse of encode: pack -> denorm -> unpack -> VAE decode.
+        b, c, h, w = code.shape
+        packed = code.view(b, c, h // 2, 2, w // 2, 2).permute(
+            0, 1, 3, 5, 2, 4).reshape(b, c * 4, h // 2, w // 2)
+        mean, std = self._bn_stats(packed)
+        packed = packed * std + mean
+        latents = packed.reshape(b, c, 2, 2, h // 2, w // 2).permute(
+            0, 1, 4, 2, 5, 3).reshape(b, c, h, w)
+        return self.vae.decode(latents, return_dict=False)[0]
+
+
+@MODULES.register_module()
+class PretrainedFlux2KleinTextEncoder(nn.Module):
+    """Qwen3 text encoder used by FLUX.2 Klein (no CLIP pooled projections)."""
+
+    def __init__(self,
+                 from_pretrained='/mnt/afs_zhangyunzhe/pretrained_models/FLUX.2-klein-base-9B',
+                 freeze=True,
+                 eval_mode=True,
+                 torch_dtype='bfloat16',
+                 max_sequence_length=512,
+                 text_encoder_out_layers=(9, 18, 27),
+                 **kwargs):
+        super().__init__()
+        if Flux2KleinPipeline is None:
+            raise ImportError(
+                'PretrainedFlux2KleinTextEncoder requires diffusers with '
+                'Flux2KleinPipeline (diffusers>=0.37).')
+        self.max_sequence_length = max_sequence_length
+        self.text_encoder_out_layers = tuple(text_encoder_out_layers)
+        self.pipeline = Flux2KleinPipeline.from_pretrained(
+            from_pretrained,
+            scheduler=None,
+            vae=None,
+            transformer=None,
+            torch_dtype=getattr(torch, torch_dtype),
+            **kwargs)
+        self.text_encoder = self.pipeline.text_encoder
+        self.tokenizer = self.pipeline.tokenizer
+        self.freeze = freeze
+        self.eval_mode = eval_mode
+        if self.freeze:
+            self.requires_grad_(False)
+        if self.eval_mode:
+            self.eval()
+
+    def train(self, mode=True):
+        mode = mode and (not self.eval_mode)
+        return super().train(mode)
+
+    def forward(self, prompt):
+        prompt_embeds, text_ids = self.pipeline.encode_prompt(
+            prompt=prompt,
+            max_sequence_length=self.max_sequence_length,
+            text_encoder_out_layers=self.text_encoder_out_layers)
+        # Flux2 Klein has no pooled_projections; keep text_ids for DiT RoPE.
+        return dict(
+            encoder_hidden_states=prompt_embeds,
+            txt_ids=text_ids)
 
 
 @MODULES.register_module()

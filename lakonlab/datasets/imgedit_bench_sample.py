@@ -22,7 +22,9 @@ from mmgen.utils import get_root_logger
 from torch.utils.data import Dataset
 
 from .image_edit import (
+    FLUX2_LATENT_CHANNELS,
     _load_rgb,
+    _pick_flux2_resolution,
     _pick_kontext_resolution,
     _pick_qwen_condition_resolution,
     _pick_qwen_vae_resolution,
@@ -45,7 +47,7 @@ DEFAULT_CATEGORIES = (
 
 
 def _to_tensor(image, bucket=None, resize_mode='qwen'):
-    if resize_mode in ('kontext', 'qwen'):
+    if resize_mode in ('kontext', 'qwen', 'flux2'):
         assert bucket is not None
         image = _resize_to(image, bucket[0], bucket[1])
     else:
@@ -79,7 +81,7 @@ class ImgEditBenchSample(Dataset):
             latent_channels: int = 16,
             **kwargs):
         del kwargs  # allow unused mmgen dataset kwargs
-        assert resize_mode in ('center_crop', 'kontext', 'qwen'), (
+        assert resize_mode in ('center_crop', 'kontext', 'qwen', 'flux2'), (
             f'Unsupported resize_mode={resize_mode}')
         self.annotations_path = annotations_path
         self.bench_root = bench_root
@@ -89,6 +91,8 @@ class ImgEditBenchSample(Dataset):
         self.seed = int(seed)
         self.resize_mode = resize_mode
         self.vae_scale_factor = vae_scale_factor
+        if resize_mode == 'flux2' and latent_channels == 16:
+            latent_channels = FLUX2_LATENT_CHANNELS
         self.latent_channels = latent_channels
 
         with open(annotations_path, 'r', encoding='utf-8') as f:
@@ -138,7 +142,7 @@ class ImgEditBenchSample(Dataset):
         return len(self.samples)
 
     def _latent_size(self, bucket: Optional[Tuple[int, int]]):
-        if self.resize_mode in ('kontext', 'qwen'):
+        if self.resize_mode in ('kontext', 'qwen', 'flux2'):
             assert bucket is not None
             bw, bh = bucket
             return (
@@ -160,6 +164,8 @@ class ImgEditBenchSample(Dataset):
         elif self.resize_mode == 'qwen':
             bucket = _pick_qwen_vae_resolution(src_w, src_h)
             condition_bucket = _pick_qwen_condition_resolution(src_w, src_h)
+        elif self.resize_mode == 'flux2':
+            bucket = _pick_flux2_resolution(src_w, src_h)
 
         source_tensor = _to_tensor(source_arr, bucket, self.resize_mode)
         latent_size = self._latent_size(bucket)

@@ -75,6 +75,12 @@ QWEN_VAE_IMAGE_AREA = 1024 * 1024
 QWEN_CONDITION_IMAGE_AREA = 384 * 384
 QWEN_VAE_ALIGN = 16  # vae_scale_factor(8) * patch packing factor(2)
 
+# FLUX.2 Klein: area-cap (~1MP) then floor to multiple of vae_scale_factor*2.
+# NOT the discrete FLUX.1 Kontext preferred-resolution buckets.
+FLUX2_IMAGE_AREA = 1024 * 1024
+FLUX2_ALIGN = 16  # vae_scale_factor(8) * packing factor(2)
+FLUX2_LATENT_CHANNELS = 32  # AutoencoderKLFlux2 latent_channels
+
 
 def _pick_qwen_vae_resolution(width: int, height: int) -> Tuple[int, int]:
     return _calculate_qwen_dimensions(
@@ -84,6 +90,25 @@ def _pick_qwen_vae_resolution(width: int, height: int) -> Tuple[int, int]:
 def _pick_qwen_condition_resolution(width: int, height: int) -> Tuple[int, int]:
     return _calculate_qwen_dimensions(
         QWEN_CONDITION_IMAGE_AREA, width, height, align=QWEN_VAE_ALIGN)
+
+
+def _pick_flux2_resolution(
+        width: int,
+        height: int,
+        target_area: int = FLUX2_IMAGE_AREA,
+        align: int = FLUX2_ALIGN) -> Tuple[int, int]:
+    """Match Flux2KleinPipeline image prep (area-cap + multiple-of snap).
+
+    Unlike Kontext buckets / Qwen fixed-area resize, Klein only downscales when
+    ``width * height > target_area``, then floors both sides to ``align``.
+    """
+    if width * height > target_area:
+        scale = math.sqrt(target_area / float(width * height))
+        width = int(width * scale)
+        height = int(height * scale)
+    width = (width // align) * align
+    height = (height // align) * align
+    return max(width, align), max(height, align)
 
 
 def _resize_to(image: np.ndarray, width: int, height: int) -> np.ndarray:
@@ -126,12 +151,16 @@ class ImageEdit(Dataset):
             resize_mode: str = 'center_crop',
             load_unpaired_edited: bool = False):
         super().__init__()
-        assert resize_mode in ('center_crop', 'kontext', 'qwen'), (
-            f'Unsupported resize_mode={resize_mode}; expected center_crop, kontext, or qwen.')
+        assert resize_mode in ('center_crop', 'kontext', 'qwen', 'flux2'), (
+            f'Unsupported resize_mode={resize_mode}; '
+            f'expected center_crop, kontext, qwen, or flux2.')
         self.data_root = os.path.abspath(data_root)
         self.edited_root = os.path.join(self.data_root, edited_images_dir)
         self.image_size = image_size
         self.vae_scale_factor = vae_scale_factor
+        # FLUX.2 VAE is 32-ch; keep caller override if provided.
+        if resize_mode == 'flux2' and latent_size is not None and latent_size[0] == 16:
+            latent_size = (FLUX2_LATENT_CHANNELS, latent_size[1], latent_size[2])
         self.latent_size = latent_size
         self.repeat = repeat
         self.test_mode = test_mode
@@ -153,10 +182,11 @@ class ImageEdit(Dataset):
                 self.records.append(json.loads(line))
 
         self.source_keys = [
-            source_column, 'local_input_image', 'reference', 'reference_image',
-            'source_image', 'source', 'input_image', 'image']
+            source_column, 'local_input_image', 'input_path', 'reference',
+            'reference_image', 'source_image', 'source', 'input_image', 'image']
         self.target_keys = [
-            target_column, 'output_image', 'edited_image', 'target', 'target_image']
+            target_column, 'output_image', 'output_path', 'edited_image',
+            'target', 'target_image']
         self.prompt_keys = [
             prompt_column, 'text', 'prompt', 'instruction', 'edit_prompt', 'caption']
 
@@ -215,7 +245,7 @@ class ImageEdit(Dataset):
             self._skip_warned = True
 
     def _to_tensor(self, image: np.ndarray, bucket: Optional[Tuple[int, int]] = None) -> torch.Tensor:
-        if self.resize_mode in ('kontext', 'qwen'):
+        if self.resize_mode in ('kontext', 'qwen', 'flux2'):
             assert bucket is not None, f'{self.resize_mode} resize_mode requires a (w, h) bucket.'
             image = _resize_to(image, bucket[0], bucket[1])
         else:
@@ -224,7 +254,7 @@ class ImageEdit(Dataset):
         return tensor
 
     def _latent_size_for_image(self, bucket: Optional[Tuple[int, int]] = None):
-        if self.resize_mode in ('kontext', 'qwen'):
+        if self.resize_mode in ('kontext', 'qwen', 'flux2'):
             assert bucket is not None, f'{self.resize_mode} resize_mode requires a (w, h) bucket.'
             bw, bh = bucket
             return (self.latent_size[0], bh // self.vae_scale_factor, bw // self.vae_scale_factor)
@@ -301,9 +331,10 @@ class ImageEdit(Dataset):
             self._warn_skip_once(mapped_idx, f'broken source: {source_path}')
             return None
 
-        # kontext: discrete FLUX bucket from source aspect ratio.
+        # kontext: discrete FLUX.1 preferred-resolution buckets.
         # qwen: fixed-area resize (~1024^2 px) for VAE; VL encoder uses a separate
         # ~384^2 resize in PretrainedQwenImageEditTextEncoder.
+        # flux2: FLUX.2 Klein area-cap (~1MP) + multiple-of-16 (NOT Kontext buckets).
         bucket = None
         condition_bucket = None
         if self.resize_mode == 'kontext':
@@ -312,6 +343,8 @@ class ImageEdit(Dataset):
             src_w, src_h = source_arr.shape[1], source_arr.shape[0]
             bucket = _pick_qwen_vae_resolution(src_w, src_h)
             condition_bucket = _pick_qwen_condition_resolution(src_w, src_h)
+        elif self.resize_mode == 'flux2':
+            bucket = _pick_flux2_resolution(source_arr.shape[1], source_arr.shape[0])
         source_tensor = self._to_tensor(source_arr, bucket)
 
         latent_size = self._latent_size_for_image(bucket)
