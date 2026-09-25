@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 
 from mmgen.models.builder import MODULES
 

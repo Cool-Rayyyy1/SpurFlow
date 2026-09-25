@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 
 import torch
 
@@ -8,7 +8,7 @@ from .base import BasePolicy
 
 
 class ArcFlowEditNewPolicy(BasePolicy):
-    """EditFlow policy with residual parameterization (fixed path epsilon).
+    """SpurFlow policy with residual parameterization (fixed path epsilon).
 
     pred_delta = mixture(deltax; weights, gammas) ~ x0_tgt - x_ref
     student_u = path_epsilon - x_ref - pred_delta

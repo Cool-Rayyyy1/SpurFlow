@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ImgEdit-Bench inference for EditFlow and supported baseline pipelines."""
+"""ImgEdit-Bench inference for SpurFlow and supported baseline pipelines."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ import torch
 from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
-EDITFLOW_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_ROOT = Path(__file__).resolve().parent
-if str(EDITFLOW_ROOT) not in sys.path:
-    sys.path.insert(0, str(EDITFLOW_ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 DEFAULT_BENCH_ROOT = Path(
     os.environ.get(
@@ -96,15 +96,15 @@ def write_basic_case_bundle(
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ImgEdit-Bench inference for EditFlow and baselines.")
+    p = argparse.ArgumentParser(description="ImgEdit-Bench inference for SpurFlow and baselines.")
     p.add_argument("--suite", choices=("basic", "uge", "multiturn", "all"), default="all")
     p.add_argument("--role", choices=("student", "teacher", "klein", "qwen"), default="student")
     p.add_argument("--bench_root", type=Path, default=DEFAULT_BENCH_ROOT)
     p.add_argument("--annotations_dir", type=Path, default=EVAL_ROOT / "annotations")
     p.add_argument("--output_dir", type=Path, default=None)
     p.add_argument("--model_path", type=str, default=DEFAULT_KONTEXT_MODEL)
-    p.add_argument("--config", type=Path, default=None, help="EditFlow config for student val_step inference.")
-    p.add_argument("--ckpt", type=Path, default=None, help="EditFlow checkpoint for student inference.")
+    p.add_argument("--config", type=Path, default=None, help="SpurFlow config for student val_step inference.")
+    p.add_argument("--ckpt", type=Path, default=None, help="SpurFlow checkpoint for student inference.")
     p.add_argument("--adapter_dir", type=str, default="", help="Deprecated; student uses --config/--ckpt.")
     p.add_argument("--run_name", type=str, default="")
     p.add_argument("--num_inference_steps", type=int, default=None)
@@ -275,7 +275,7 @@ def resolve_output_dir(args: argparse.Namespace) -> Path:
     if args.role == "qwen":
         run_name = args.run_name or "qwen_image_edit_2511"
         return DEFAULT_OUTPUT_ROOT / "runs" / f"{run_name}_{QWEN_DEFAULT_STEPS}step" / "model"
-    run_name = args.run_name or "editflow"
+    run_name = args.run_name or "spurflow"
     return DEFAULT_OUTPUT_ROOT / "student" / run_name
 
 

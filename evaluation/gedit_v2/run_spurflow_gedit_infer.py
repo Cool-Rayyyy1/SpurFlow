@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GEdit inference for EditFlow alpha / fixed-eps student models.
+"""GEdit inference for SpurFlow alpha / fixed-eps student models.
 
 No scoring. Writes:
   {output_dir}/{tgt_image_path}             — matches meta JSON for later eval
@@ -23,13 +23,13 @@ from tqdm import tqdm
 
 EVAL_ROOT = Path(__file__).resolve().parents[1]
 IMGEDIT_ROOT = EVAL_ROOT / "imgedit_bench"
-EDITFLOW_ROOT = EVAL_ROOT.parent
-for path in (str(IMGEDIT_ROOT), str(EDITFLOW_ROOT)):
+PROJECT_ROOT = EVAL_ROOT.parent
+for path in (str(IMGEDIT_ROOT), str(PROJECT_ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
-from run_editflow_imgedit_infer import (  # noqa: E402
+from run_spurflow_imgedit_infer import (  # noqa: E402
     build_student_model,
     get_student_mixture_stats,
     install_mixture_stats_hook,
@@ -48,7 +48,7 @@ DEFAULT_KONTEXT = os.environ.get(
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="GEdit-v2 EditFlow student inference (no scoring).")
+    p = argparse.ArgumentParser(description="GEdit-v2 SpurFlow student inference (no scoring).")
     p.add_argument("--meta_json", type=Path, default=DEFAULT_META)
     p.add_argument("--output_dir", type=Path, required=True)
     p.add_argument("--model_path", type=str, default=DEFAULT_KONTEXT)

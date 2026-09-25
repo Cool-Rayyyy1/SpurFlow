@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Warmup for FLUX.1 Kontext EditFlow. No GAN.
+# SpurFlow warmup on FLUX.1 Kontext. No GAN.
 #
 # Student is a 2-NFE conditional editor. A sigmoid alpha head mixes the
 # reference latent into the predicted velocity:
@@ -11,10 +11,10 @@
 #
 # Required:
 #   KONTEXT_MODEL   local FLUX.1-Kontext-dev directory
-#   PICO_ROOT       paired edit dataset root
-#   OSS_ROOT        second paired edit dataset root (metadata.jsonl, or built)
+#   DATA_A_ROOT     paired edit set A (metadata.jsonl, or built)
+#   DATA_B_ROOT     paired edit set B (metadata.jsonl, or DATA_B_JSONL)
 # Optional:
-#   OSS_PROB=0.3 PICO_PROB=0.7 NFE=2 SHIFT=3.2 TOTAL_ITERS=50000
+#   DATA_A_PROB=0.3 DATA_B_PROB=0.7 NFE=2 SHIFT=3.2 TOTAL_ITERS=50000
 #   GPU_IDS=0,1,2,3,4,5,6,7 NUM_GPUS=8
 #   PRETRAIN_CKPT=path/to/student.pth   # continue from an existing student
 #   FRESH=1                             # ignore checkpoints on disk
@@ -50,11 +50,12 @@ SAMPLE_INTERVAL="${SAMPLE_INTERVAL:-500}"
 SAMPLES_PER_CATEGORY="${SAMPLES_PER_CATEGORY:-2}"
 TOTAL_ITERS="${TOTAL_ITERS:-50000}"
 EVAL="${EVAL:-1}"
-PICO_ROOT="${PICO_ROOT:-${DATA_ROOT:-}}"
-OSS_ROOT="${OSS_ROOT:-}"
-OSS_JSONL="${OSS_JSONL:-${OSS_ROOT}/metadata.jsonl}"
-OSS_PROB="${OSS_PROB:-0.3}"
-PICO_PROB="${PICO_PROB:-0.7}"
+DATA_B_ROOT="${DATA_B_ROOT:-${DATA_ROOT:-}}"
+DATA_A_ROOT="${DATA_A_ROOT:-}"
+DATA_A_JSONL="${DATA_A_JSONL:-${DATA_A_ROOT}/metadata.jsonl}"
+DATA_B_JSONL="${DATA_B_JSONL:-metadata.jsonl}"
+DATA_A_PROB="${DATA_A_PROB:-0.3}"
+DATA_B_PROB="${DATA_B_PROB:-0.7}"
 KONTEXT_MODEL="${KONTEXT_MODEL:-}"
 GEDIT_META="${GEDIT_META:-}"
 GEDIT_ROOT="${GEDIT_ROOT:-}"
@@ -66,32 +67,30 @@ FRESH="${FRESH:-0}"
 PRETRAIN_CKPT="${PRETRAIN_CKPT:-}"
 # --------------------------------
 
-if [[ -z "${KONTEXT_MODEL}" || -z "${PICO_ROOT}" || -z "${OSS_ROOT}" ]]; then
-    echo "Set KONTEXT_MODEL, PICO_ROOT, and OSS_ROOT." >&2
+if [[ -z "${KONTEXT_MODEL}" || -z "${DATA_B_ROOT}" || -z "${DATA_A_ROOT}" ]]; then
+    echo "Set KONTEXT_MODEL, DATA_B_ROOT, and DATA_A_ROOT." >&2
     exit 1
 fi
 
-RUN_NAME="${RUN_NAME:-flux_kontext_warmup}"
-CONFIG="${PROJECT_DIR}/configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data_oss_pico.py"
+RUN_NAME="${RUN_NAME:-spurflow_warmup}"
+CONFIG="${PROJECT_DIR}/configs/kontext/editflux_kontext_warmup.py"
 
-if [[ ! -f "${OSS_JSONL}" ]]; then
+if [[ ! -f "${DATA_A_JSONL}" ]]; then
     if [[ "${RANK:-0}" == "0" ]]; then
-        echo "[data] building ${OSS_JSONL}"
-        python "${PROJECT_DIR}/tools/build_oss_edit_jsonl.py" --root "${OSS_ROOT}" --out "${OSS_JSONL}"
+        echo "[data] building ${DATA_A_JSONL}"
+        python "${PROJECT_DIR}/tools/build_pair_jsonl.py" --root "${DATA_A_ROOT}" --out "${DATA_A_JSONL}"
     else
-        echo "[data] waiting for ${OSS_JSONL}"
+        echo "[data] waiting for ${DATA_A_JSONL}"
         for _ in $(seq 1 120); do
-            [[ -f "${OSS_JSONL}" ]] && break
+            [[ -f "${DATA_A_JSONL}" ]] && break
             sleep 5
         done
-        [[ -f "${OSS_JSONL}" ]] || { echo "[data] timeout waiting for ${OSS_JSONL}" >&2; exit 1; }
+        [[ -f "${DATA_A_JSONL}" ]] || { echo "[data] timeout waiting for ${DATA_A_JSONL}" >&2; exit 1; }
     fi
 fi
 
 export CUDA_VISIBLE_DEVICES="${GPU_IDS}"
 export KONTEXT_MODEL_PATH="${KONTEXT_MODEL}"
-export PICO_BANANA_PATH="${PICO_ROOT}"
-
 CKPT_BASE="checkpoints/${RUN_NAME}"
 LOAD_FROM=""
 RESUME_FROM=""
@@ -156,11 +155,13 @@ CFG_OPTS=(
     "sample_eval.must_save_interval=0"
     "sample_eval.dataset.samples_per_category=${SAMPLES_PER_CATEGORY}"
     "total_iters=${TOTAL_ITERS}"
-    "data.train.probs=[${OSS_PROB},${PICO_PROB}]"
-    "data.train.datasets.0.data_root=${OSS_ROOT}"
-    "data.train.datasets.0.jsonl_path=${OSS_JSONL}"
-    "data.train.datasets.1.data_root=${PICO_ROOT}"
-    "data.val.data_root=${PICO_ROOT}"
+    "data.train.probs=[${DATA_A_PROB},${DATA_B_PROB}]"
+    "data.train.datasets.0.data_root=${DATA_A_ROOT}"
+    "data.train.datasets.0.jsonl_path=${DATA_A_JSONL}"
+    "data.train.datasets.1.data_root=${DATA_B_ROOT}"
+    "data.train.datasets.1.jsonl_path=${DATA_B_JSONL}"
+    "data.val.data_root=${DATA_B_ROOT}"
+    "data.val.jsonl_path=${DATA_B_JSONL}"
     "model.vae.from_pretrained=${KONTEXT_MODEL}"
     "model.text_encoder.from_pretrained=${KONTEXT_MODEL}"
     "model.diffusion.denoising.pretrained=${KONTEXT_MODEL}/transformer/diffusion_pytorch_model.safetensors.index.json"
@@ -180,7 +181,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Warmup FLUX.1 Kontext (no GAN, mix ${OSS_PROB}/${PICO_PROB}): nproc=${NUM_GPUS} nfe=${NFE} shift=${SHIFT} load_from=${LOAD_FROM:-none} resume_from=${RESUME_FROM:-none} total_iters=${TOTAL_ITERS} run=${RUN_NAME}"
+echo "Warmup FLUX.1 Kontext (no GAN, mix ${DATA_A_PROB}/${DATA_B_PROB}): nproc=${NUM_GPUS} nfe=${NFE} shift=${SHIFT} load_from=${LOAD_FROM:-none} resume_from=${RESUME_FROM:-none} total_iters=${TOTAL_ITERS} run=${RUN_NAME}"
 
 torchrun \
     --nnodes="${WORLD_SIZE:-1}" \
@@ -190,5 +191,4 @@ torchrun \
     --master_port="${MASTER_PORT:-29500}" \
     "${PROJECT_DIR}/train.py" \
     "${CONFIG}" \
-    --launcher pytorch --diff_seed \
-    --cfg-options "${CFG_OPTS[@]}"
+    --launcher pytorch --d

@@ -23,12 +23,12 @@ from tqdm import tqdm
 
 EVAL_ROOT = Path(__file__).resolve().parents[1]
 IMGEDIT_ROOT = EVAL_ROOT / "imgedit_bench"
-EDITFLOW_ROOT = EVAL_ROOT.parent
-for path in (str(IMGEDIT_ROOT), str(EDITFLOW_ROOT)):
+PROJECT_ROOT = EVAL_ROOT.parent
+for path in (str(IMGEDIT_ROOT), str(PROJECT_ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from run_editflow_imgedit_infer import (  # noqa: E402
+from run_spurflow_imgedit_infer import (  # noqa: E402
     build_teacher_pipeline,
     build_klein_pipeline,
     build_qwen_pipeline,

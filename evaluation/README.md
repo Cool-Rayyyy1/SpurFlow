@@ -1,4 +1,4 @@
-# EditFlow Evaluation
+# SpurFlow Evaluation
 
 Image-editing benchmark only ([ImgEdit-Bench](https://github.com/PKU-YuanGroup/ImgEdit)).
 

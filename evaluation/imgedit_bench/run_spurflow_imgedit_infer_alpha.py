@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ImgEdit-Bench inference for EditFlow alpha student models (gen + alpha v6 in one pass).
+"""ImgEdit-Bench inference for SpurFlow alpha student models (gen + alpha v6 in one pass).
 
 Basic layout (9 categories, no flat ``basic/{key}.png`` duplicates):
   student/basic/{Action,Add,...}/{key}/
@@ -27,9 +27,9 @@ from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 EVAL_ROOT = Path(__file__).resolve().parent
-EDITFLOW_ROOT = EVAL_ROOT.parents[1]
-if str(EDITFLOW_ROOT) not in sys.path:
-    sys.path.insert(0, str(EDITFLOW_ROOT))
+PROJECT_ROOT = EVAL_ROOT.parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from alpha_vis import (  # noqa: E402
     capture_student_alphas,
@@ -37,7 +37,7 @@ from alpha_vis import (  # noqa: E402
     render_continuous_alpha_on_src,
 )
 from alpha_model_utils import build_alpha_vis_model  # noqa: E402
-from run_editflow_imgedit_infer import (  # noqa: E402
+from run_spurflow_imgedit_infer import (  # noqa: E402
     basic_case_dir,
     build_klein_pipeline,
     build_teacher_pipeline,

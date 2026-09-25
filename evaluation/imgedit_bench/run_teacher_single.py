@@ -25,15 +25,15 @@ import torch
 from PIL import Image
 
 EVAL_ROOT = Path(__file__).resolve().parent
-EDITFLOW_ROOT = EVAL_ROOT.parents[1]
-if str(EDITFLOW_ROOT) not in sys.path:
-    sys.path.insert(0, str(EDITFLOW_ROOT))
+PROJECT_ROOT = EVAL_ROOT.parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from run_editflow_imgedit_infer import build_teacher_pipeline  # noqa: E402
+from run_spurflow_imgedit_infer import build_teacher_pipeline  # noqa: E402
 
 DEFAULT_MODEL = os.environ.get(
     "KONTEXT_MODEL_PATH", "/path/to/pretrained_models/FLUX.1-Kontext-dev")
-DEFAULT_IMAGE = EDITFLOW_ROOT / "pikachu.png"
+DEFAULT_IMAGE = PROJECT_ROOT / "pikachu.png"
 DEFAULT_PROMPT = (
     "Put an Ash Ketchum-style Pokemon Trainer cap on Pikachu, with a red-and-white "
     "design and a green emblem on the front.")

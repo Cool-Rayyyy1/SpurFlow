@@ -1,13 +1,12 @@
 _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_data_step2_alph_dino_gan.sh`
-# Fixed-eps alpha PIID + step-2 TDM-style DINO feature GAN with mask-guided local crop.
+# Fixed-eps alpha editor + step-2 DINO feature GAN with mask-guided local crop.
 # Fake: 2-NFE rollout -> step2 alpha + endpoint latent -> VAE decode.
 # Crops (shared real/fake/ref): full global, random local, alpha-mask local (low alpha = edit).
 # Source-conditional DINO features: cat([DINO(ref), DINO(target)], dim=1)
 #   D(ref, x_edit)=1, D(ref, x_student)=0 (paired reals only; unpaired reals off).
 # GAN grads: through both NFE steps (gan_grad_step2_only=False).
-name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
+name = 'spurflow'
 kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 dinov3_model = '/path/to/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
@@ -197,13 +196,13 @@ fsdp_kwargs = dict(
 )
 
 sample_eval = dict(
-    type='EditFlowSampleImagesHook',
+    type='SpurFlowSampleImagesHook',
     enabled=True,
     # Fixed ImgEdit-Bench subset: 9 categories x 5 examples (seeded).
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/path/to/EditFlow/evaluation/imgedit_bench/'
+            '/path/to/imgedit_bench/'
             'annotations/basic_edit.json'),
         bench_root='/path/to/dataset/imgedit/benchmark/Benchmark',
         categories=[

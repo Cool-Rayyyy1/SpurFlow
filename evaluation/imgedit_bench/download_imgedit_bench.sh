@@ -75,4 +75,4 @@ fi
 echo "Done."
 echo "  tar:      ${TAR_PATH}"
 echo "  images:   ${EXTRACT_DIR}/Benchmark"
-echo "  metadata: EditFlow/evaluation/imgedit_bench/annotations/"
+echo "  metadata: evaluation/imgedit_bench/annotations/"

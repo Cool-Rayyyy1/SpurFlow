@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """FLUX.2 Klein **base** 9B edit distillation wrapper.
 
 Teacher checkpoint: ``FLUX.2-klein-base-9B`` (undistilled).
@@ -24,7 +24,7 @@ from .latent_diffusion_image_edit import LatentDiffusionImageEdit
 
 @MODELS.register_module()
 class LatentDiffusionFlux2KleinImageEdit(LatentDiffusionImageEdit):
-    """EditFlow wrapper for FLUX.2-klein-base-9B teacher + cond-only student."""
+    """SpurFlow wrapper for FLUX.2-klein-base-9B teacher + cond-only student."""
 
     def _encode_negative_prompt_embeds(self, data, prompt_embed_kwargs, bs, negative_prompt):
         if 'negative_prompt_embed_kwargs' in data:

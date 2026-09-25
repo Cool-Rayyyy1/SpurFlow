@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Qwen Softsign-01 alpha + step-2 PIID + source-cond DINO GAN.
 
 Same GAN recipe as Kontext ``step2_alph_dino_gan``:

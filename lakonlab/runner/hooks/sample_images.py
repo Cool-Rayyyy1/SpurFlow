@@ -194,7 +194,7 @@ def _sample_folder_name(data, index, fallback_idx):
 
 
 @HOOKS.register_module()
-class EditFlowSampleImagesHook(Hook):
+class SpurFlowSampleImagesHook(Hook):
     """Save edit validation samples as one folder per example.
 
     Default layout under ``iter_<N>/``:
@@ -256,7 +256,7 @@ class EditFlowSampleImagesHook(Hook):
         sampler_len = len(sampler) if sampler is not None else dataset_len
         if rank == 0 and sampler_len < dataset_len:
             runner.logger.warning(
-                f'EditFlowSampleImagesHook: dataloader sampler covers only '
+                f'SpurFlowSampleImagesHook: dataloader sampler covers only '
                 f'{sampler_len}/{dataset_len} samples (sharded sampler?). '
                 f'Sample dump will miss categories; build the sample '
                 f'dataloader with dist=False.')

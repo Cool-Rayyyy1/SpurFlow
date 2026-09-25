@@ -20,7 +20,7 @@ EVAL_ROOT = Path(__file__).resolve().parent
 if str(EVAL_ROOT) not in sys.path:
     sys.path.insert(0, str(EVAL_ROOT))
 
-from run_editflow_imgedit_infer import load_tasks, resolve_source_path
+from run_spurflow_imgedit_infer import load_tasks, resolve_source_path
 
 
 PANEL_HEIGHT = 512

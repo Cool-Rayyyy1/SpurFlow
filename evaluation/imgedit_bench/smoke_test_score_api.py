@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 EVAL_ROOT = Path(__file__).resolve().parent
-EDITFLOW_ROOT = EVAL_ROOT.parents[1]
+PROJECT_ROOT = EVAL_ROOT.parents[1]
 
 DEFAULT_BENCH_ROOT = Path(
     os.environ.get(

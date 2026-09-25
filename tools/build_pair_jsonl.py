@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build metadata.jsonl for /path/to/data/oss_edit.
+"""Build metadata.jsonl for a paired edit directory.
 
 Prompt is always taken from the sidecar json:
   Edit_Instruction, else gemma_instruction_separate.
@@ -122,7 +122,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("/path/to/data/oss_edit"),
+        default=Path("/path/to/paired_edit_data"),
     )
     parser.add_argument(
         "--out",
@@ -153,7 +153,7 @@ def sidecar_json_path(rec: dict) -> Path:
     task = rec.get("task") or ""
     root = rec.get("data_root")
     if uuid and task:
-        base = Path(root) if root else Path("/path/to/data/oss_edit")
+        base = Path(root) if root else Path("/path/to/paired_edit_data")
         return base / task / f"{uuid}.json"
     raise ValueError(f"cannot locate sidecar json for {rec!r}")
 

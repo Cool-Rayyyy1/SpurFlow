@@ -171,7 +171,7 @@ class PretrainedVAEFlux2(nn.Module):
     """FLUX.2 ``AutoencoderKLFlux2`` wrapper (32-ch latents + BN normalize).
 
     Encode returns **unpatched** ``(B, 32, H/8, W/8)`` latents after the
-    Flux2 BN affine used by ``Flux2KleinPipeline._encode_vae_image``. EditFlow
+    Flux2 BN affine used by ``Flux2KleinPipeline._encode_vae_image``. SpurFlow
     ``patchify(patch_size=2)`` then packs to the transformer's 128-ch tokens.
     """
 

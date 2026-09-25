@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """FLUX.2-klein Softsign-01 alpha + split-stage PIID + source-cond DINO GAN.
 
 Same GAN recipe as Qwen ``alph_dino_gan`` / Flux ``alph_dino_gan``:

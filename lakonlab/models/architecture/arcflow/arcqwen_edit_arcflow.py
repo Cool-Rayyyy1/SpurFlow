@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Qwen-Image-Edit backbone + pure ArcFlow GM heads (means / logweights / loggamma).
 
 Mirrors Kontext ``ArcFluxTransformer2DModel`` on editing: same ``ArcFlow`` policy as

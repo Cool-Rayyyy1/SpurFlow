@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 
 """Dual-LoRA teacher-x0 + step-1-only LPIPS/DINO.
 

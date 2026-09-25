@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Qwen-Image-Edit fixed-eps PIID + step-2 TDM-style DINO feature GAN.
 
 Counterpart of Flux ``step2_dino_gan`` on Qwen (no alpha head):

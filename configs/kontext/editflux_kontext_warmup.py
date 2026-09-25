@@ -1,18 +1,14 @@
 _base_ = ['./editflux_uedit_fixedeps_2nfe_k16_alpha_data.py']
 
-# `train_flux_edit_fixedeps_alpha_data.sh`
-# Same non-split ArcFlowEditAlphaImitation sigmoid-alpha recipe as the pico-only
-# baseline (ArcFluxEditNewAlphaTransformer2DModel), but:
-#   - init from FLUX.1-Kontext-dev (no EditFlow student pretrain by default)
-#   - train mix 30% oss_edit + 70% pico-banana-400k
-#
-# Student remains cond-only 2-NFE. Teacher distilled CFG=3.5. No GAN.
+# SpurFlow warmup. Sigmoid alpha, 2-NFE, no GAN.
+# Mix two paired edit sets. Paths are overridden by train_flux_kontext_warmup.sh.
+# Student is cond-only. Teacher uses distilled CFG.
 
-pico_root = '/path/to/data/pico-banana-400k'
-oss_root = '/path/to/data/oss_edit'
+data_b_root = '/path/to/paired_edit_set_b'
+data_a_root = '/path/to/paired_edit_set_a'
 kontext_model = '/path/to/checkpoints/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_oss30_pico70'
+name = 'spurflow_warmup'
 work_dir = f'work_dirs/{name}'
 resume_from = None
 load_from = None
@@ -33,8 +29,8 @@ data = dict(
         probs=[0.3, 0.7],
         datasets=[
             dict(
-                type='OssEdit',
-                data_root=oss_root,
+                type='PairEdit',
+                data_root=data_a_root,
                 jsonl_path='metadata.jsonl',
                 require_edited=True,
                 resize_mode='kontext',
@@ -43,8 +39,8 @@ data = dict(
             ),
             dict(
                 type='ImageEdit',
-                data_root=pico_root,
-                jsonl_path='jsonl/sft_with_local_source_image_path.jsonl',
+                data_root=data_b_root,
+                jsonl_path='metadata.jsonl',
                 edited_images_dir='edited_images',
                 image_size=1024,
                 require_edited=True,
@@ -57,8 +53,8 @@ data = dict(
     val=dict(
         _delete_=True,
         type='ImageEdit',
-        data_root=pico_root,
-        jsonl_path='jsonl/sft_with_local_source_image_path.jsonl',
+        data_root=data_b_root,
+        jsonl_path='metadata.jsonl',
         edited_images_dir='edited_images',
         image_size=1024,
         resize_mode='kontext',
@@ -70,7 +66,7 @@ data = dict(
 
 sample_eval = dict(
     _delete_=True,
-    type='EditFlowSampleImagesHook',
+    type='SpurFlowSampleImagesHook',
     enabled=True,
     dataset=dict(
         type='GEditV2Sample',

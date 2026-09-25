@@ -27,7 +27,7 @@ class ArcFlowModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditModelOutput(BaseOutput):
-    """EditFlow student output: per-component edit delta, noise, mixture weights, and gammas."""
+    """SpurFlow student output: per-component edit delta, noise, mixture weights, and gammas."""
 
     deltax: torch.Tensor
     epsilon: torch.Tensor
@@ -37,7 +37,7 @@ class ArcFlowEditModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditNewModelOutput(BaseOutput):
-    """EditFlow-new: deltax mixture only; path noise epsilon comes from data sampling."""
+    """SpurFlow-new: deltax mixture only; path noise epsilon comes from data sampling."""
 
     deltax: torch.Tensor
     logweights: torch.Tensor
@@ -46,7 +46,7 @@ class ArcFlowEditNewModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditNewEpsModelOutput(BaseOutput):
-    """EditFlow-new with learned path epsilon head (teacher inversion target at train)."""
+    """SpurFlow-new with learned path epsilon head (teacher inversion target at train)."""
 
     deltax: torch.Tensor
     epsilon: torch.Tensor
@@ -56,7 +56,7 @@ class ArcFlowEditNewEpsModelOutput(BaseOutput):
 
 @dataclass
 class ArcFlowEditNewAlphaModelOutput(BaseOutput):
-    """EditFlow-new with one sigmoid alpha per latent position in each patch."""
+    """SpurFlow-new with one sigmoid alpha per latent position in each patch."""
 
     deltax: torch.Tensor
     logweights: torch.Tensor

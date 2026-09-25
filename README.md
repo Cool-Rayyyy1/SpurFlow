@@ -1,43 +1,41 @@
-# EditFlow
+# SpurFlow
 
-EditFlow distills FLUX.1 Kontext into a 2-step image editor. A learned alpha map mixes the reference latent into the student velocity, and a second stage adds a source-conditional discriminator on the decoded edit.
+SpurFlow distills FLUX.1 Kontext into a 2-step image editor. A learned alpha map mixes the reference latent into the student velocity, and a second stage adds a source-conditional discriminator on the decoded edit.
 
 The teacher is frozen FLUX.1 Kontext with distilled classifier-free guidance. The student is a LoRA-adapted Kontext transformer with K=16 Gaussian heads and an alpha head. The reference image is encoded to latents and concatenated along the sequence dimension, in the same layout as Kontext.
 
+## Data
+
+Training uses two paired edit sets. Each example is a source image, an edited image, and an instruction. Set A is indexed by `metadata.jsonl` (the launcher can build it). Set B uses a jsonl of local image paths. The default mix is 30% set A and 70% set B.
+
 ## Training
-
-Training has two stages. Warmup learns the alpha editor with no discriminator. Formal training loads that checkpoint and continues with one shared 2-step rollout plus a GAN.
-
-Set paths in the environment. Do not hard-code them into the configs.
 
 ```bash
 export KONTEXT_MODEL=/path/to/FLUX.1-Kontext-dev
-export PICO_ROOT=/path/to/paired_edit_set_a
-export OSS_ROOT=/path/to/paired_edit_set_b
+export DATA_A_ROOT=/path/to/paired_edit_set_a
+export DATA_B_ROOT=/path/to/paired_edit_set_b
 export CONDA_ROOT=/path/to/anaconda3
 source setup_env.sh
 ```
 
-Each paired set needs a source image, an edited image, and an edit instruction. `OSS_ROOT` can be a directory of pairs; the launcher writes `metadata.jsonl` if it is missing. The default mix is 30% of the second set and 70% of the first.
-
-Warmup, from the Kontext backbone and randomly initialized alpha and delta heads:
+Warmup learns the alpha editor with no discriminator, starting from the Kontext backbone and randomly initialized alpha and delta heads:
 
 ```bash
 bash train_flux_kontext_warmup.sh
 ```
 
-Formal training. `PRETRAIN_CKPT` is a warmup checkpoint. `DINOV3_MODEL` is a DINOv3 ViT-L/16 weight file.
+Formal training loads that checkpoint and continues with one shared 2-step rollout plus a GAN. `DINOV3_MODEL` is a DINOv3 ViT-L/16 weight file.
 
 ```bash
 export DINOV3_MODEL=/path/to/dinov3-vitl16/model.safetensors
-export PRETRAIN_CKPT=checkpoints/flux_kontext_warmup/<run_id>/latest.pth
+export PRETRAIN_CKPT=checkpoints/spurflow_warmup/<run_id>/latest.pth
 bash train_flux_kontext.sh
 ```
 
 Useful overrides:
 
 ```bash
-NFE=2 TOTAL_ITERS=50000 OSS_PROB=0.3 PICO_PROB=0.7 bash train_flux_kontext_warmup.sh
+NFE=2 TOTAL_ITERS=50000 DATA_A_PROB=0.3 DATA_B_PROB=0.7 bash train_flux_kontext_warmup.sh
 NUM_GPUS=8 GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_kontext.sh
 GAN_WEIGHT=0.05 GAN_WARMUP_ITERS=0 GAN_RAMP_ITERS=0 bash train_flux_kontext.sh
 FRESH=1 bash train_flux_kontext_warmup.sh
@@ -45,10 +43,10 @@ FRESH=1 bash train_flux_kontext_warmup.sh
 
 Checkpoints and samples:
 
-- `checkpoints/flux_kontext_warmup/`
-- `checkpoints/flux_kontext/`
-- `work_dirs/flux_kontext_warmup/`
-- `work_dirs/flux_kontext/`
+- `checkpoints/spurflow_warmup/`
+- `checkpoints/spurflow/`
+- `work_dirs/spurflow_warmup/`
+- `work_dirs/spurflow/`
 
 ## What the formal stage optimizes
 
@@ -61,7 +59,7 @@ The discriminator is a frozen DINOv3 backbone with a trainable head. A real exam
 
 Configs:
 
-- Warmup: `configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data_oss_pico.py`
+- Warmup: `configs/kontext/editflux_kontext_warmup.py`
 - Formal: `configs/kontext/editflux_kontext_split_stage_alpha_dino_gan.py`
 
 Launch scripts override model, data, and checkpoint paths from the environment.

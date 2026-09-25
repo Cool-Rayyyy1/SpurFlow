@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EditFlow contributors
-"""Probability mixture of mmgen datasets (e.g. 70% oss_edit + 30% pico-banana)."""
+# Copyright (c) 2026 SpurFlow contributors
+"""Probability mixture of image-edit datasets."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _rank_world() -> Tuple[int, int]:
 
 @DATASETS.register_module()
 class ProbMixDataset(Dataset):
-    """Mix child datasets by probability (e.g. 70% oss_edit + 30% pico).
+    """Mix child datasets by probability.
 
     ``uid = idx * world_size + rank`` so ranks do not draw independently.
     A 10-slot cycle maps uid -> dataset (7/3 for 70/30) and a running

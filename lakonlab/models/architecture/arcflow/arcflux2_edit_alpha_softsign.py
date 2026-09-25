@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """FLUX.2 Klein Softsign-01 alpha student DiT.
 
 Alpha design (matches Qwen softsign / train_*_alpha_softsign_*):
@@ -181,7 +181,7 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
 
         # Official Flux2Transformer2DModel.forward does timestep * 1000 before
         # time_guidance_embed. This path bypasses super().forward, so scale here.
-        # EditFlow t is sigma in [0, 1] (num_timesteps=1), matching Kontext ArcFlux.
+        # SpurFlow t is sigma in [0, 1] (num_timesteps=1), matching Kontext ArcFlux.
         timestep = timestep.to(dtype=dtype) * 1000
         temb = self.time_guidance_embed(timestep, None)
         if temb.dtype != dtype:

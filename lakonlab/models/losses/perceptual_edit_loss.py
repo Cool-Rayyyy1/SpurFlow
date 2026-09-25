@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """LPIPS + frozen DINOv3 feature losses for edit-endpoint supervision."""
 
 from __future__ import annotations

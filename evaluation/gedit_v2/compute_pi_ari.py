@@ -2,7 +2,7 @@
 """ARI between per-step mixture dominant_k (argmax pi head) and GEdit edit_type.
 
 Reads {output_dir}/manifest.json for stem -> edit_type and
-{output_dir}/mixture_stats/{stem}.json (written by run_editflow_gedit_infer.py
+{output_dir}/mixture_stats/{stem}.json (written by run_spurflow_gedit_infer.py
 --dump_mixture_stats) for per-NFE-step dominant_k. Composite / reference-based
 edit types are excluded by default so that #classes <= K (16 for k16 models).
 

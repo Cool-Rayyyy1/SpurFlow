@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Qwen-Image-Edit fixed-eps split-stage PIID + DINO feature GAN (no alpha).
 
 Same unroll sharing as ``alph_dino_gan`` / Qwen alpha split-stage GAN:

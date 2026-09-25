@@ -1,8 +1,8 @@
-# Copyright (c) 2026 EditFlow contributors
-"""OSS banana-edit pairs under /path/to/data/oss_edit.
+# Copyright (c) 2026 SpurFlow contributors
+"""Paired edit data: source image, edited image, and an instruction.
 
-Same resize / latent logic as ``ImageEdit`` (kontext / qwen / flux2 / center_crop).
-JSONL is built by ``tools/build_oss_edit_jsonl.py``.
+Same resize / latent logic as ``ImageEdit``.
+JSONL is built by ``tools/build_pair_jsonl.py``.
 """
 
 from mmgen.datasets.builder import DATASETS
@@ -12,8 +12,8 @@ from .image_edit import ImageEdit
 
 
 @DATASETS.register_module()
-class OssEdit(ImageEdit):
-    """ImageEdit subset for oss_edit pairs.
+class PairEdit(ImageEdit):
+    """Paired source / edited-image records.
 
     Expected jsonl fields:
       input_path, output_path, instruction, task, uuid
@@ -21,7 +21,7 @@ class OssEdit(ImageEdit):
 
     def __init__(
             self,
-            data_root: str = '/path/to/data/oss_edit',
+            data_root: str = '/path/to/paired_edit_data',
             jsonl_path: str = 'metadata.jsonl',
             source_column: str = 'input_path',
             target_column: str = 'output_path',
@@ -44,4 +44,4 @@ class OssEdit(ImageEdit):
             'gemma_instruction_separate',
         ]
         get_root_logger().info(
-            f'OssEdit: {self.end_ind - self.start_ind} pairs from {self.data_root}')
+            f'PairEdit: {self.end_ind - self.start_ind} pairs from {self.data_root}')

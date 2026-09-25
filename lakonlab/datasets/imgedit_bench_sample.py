@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 
 """Fixed ImgEdit-Bench validation subset for training-time sample dumps.
 
@@ -72,7 +72,7 @@ def build_edit_val_item(
         vae_scale_factor: int,
         latent_channels: int,
         split: str = ''):
-    """Shared ImgEdit / GEdit / OSS val dump item."""
+    """Shared validation-dump item."""
     source_arr = _load_rgb(meta['source_path'])
     src_w, src_h = source_arr.shape[1], source_arr.shape[0]
 

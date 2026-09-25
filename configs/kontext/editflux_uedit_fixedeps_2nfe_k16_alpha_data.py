@@ -1,10 +1,9 @@
 _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
-# `train_flux_edit_fixedeps_alpha_data.sh` -> gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k
 # Four-channel continuous alpha: alpha = sigmoid(raw head), zero-logit init.
 # The four channels map independently to the four positions in each 2x2 patch.
 # It multiplies x_ref directly: student_u = path_epsilon - alpha * x_ref - pred_delta.
-name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k'
+name = 'spurflow_warmup'
 kontext_model = '/path/to/checkpoints/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
@@ -120,7 +119,7 @@ test_cfg = dict(
 # yapf: enable
 
 sample_eval = dict(
-    type='EditFlowSampleImagesHook',
+    type='SpurFlowSampleImagesHook',
     enabled=True,
     # Fixed ImgEdit-Bench subset: 9 categories x 5 examples (seeded).
     dataset=dict(

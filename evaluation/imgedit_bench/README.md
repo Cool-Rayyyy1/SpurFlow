@@ -1,4 +1,4 @@
-# ImgEdit-Bench for EditFlow
+# ImgEdit-Bench for SpurFlow
 
 Benchmark from [PKU-YuanGroup/ImgEdit](https://github.com/PKU-YuanGroup/ImgEdit) (NeurIPS 2025 D&B).
 
@@ -29,7 +29,7 @@ Repo folder names vs tarball names:
 
 | Script | Purpose |
 |---|---|
-| `run_editflow_imgedit_infer.py` | Generate edits (student or teacher) |
+| `run_spurflow_imgedit_infer.py` | Generate edits (student or teacher) |
 | `run_imgedit_score.py` | GPT-4o scoring on student outputs |
 | `download_imgedit_bench.sh` | Download + extract benchmark data |
 

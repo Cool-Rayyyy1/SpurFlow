@@ -1,5 +1,5 @@
-# Copyright (c) 2026 EditFlow contributors
-"""Fixed GEdit / OSS validation subsets for training-time sample dumps."""
+# Copyright (c) 2026 SpurFlow contributors
+"""Fixed validation subsets for training-time sample dumps."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ DEFAULT_GEDIT_V2_CATEGORIES = (
     'tone_transfer',
 )
 
-DEFAULT_OSS_TASKS = (
+DEFAULT_PAIR_TASKS = (
     'camera_motion',
     'relation_change',
     'size_adjustment',
@@ -75,7 +75,7 @@ def _resolve_resize(resize_mode: str, latent_channels: int):
 
 @DATASETS.register_module()
 class ConcatEditValSample(Dataset):
-    """Concatenate ImgEdit / GEdit / OSS val dumps into one dataloader."""
+    """Concatenate several validation dumps into one dataloader."""
 
     def __init__(self, datasets: Sequence[dict], **kwargs):
         del kwargs
@@ -226,12 +226,12 @@ class GEditV2Sample(GEditBenchSample):
 
 
 @DATASETS.register_module()
-class OssEditSample(Dataset):
-    """Fixed OSS-edit subset. Default: 1 example from 5 tasks including camera_motion."""
+class PairEditSample(Dataset):
+    """Fixed subset of a paired edit set."""
 
     def __init__(
             self,
-            data_root: str = '/path/to/data/oss_edit',
+            data_root: str = '/path/to/paired_edit_data',
             jsonl_path: str = 'metadata.jsonl',
             tasks: Optional[Sequence[str]] = None,
             samples_per_task: int = 1,
@@ -239,15 +239,15 @@ class OssEditSample(Dataset):
             resize_mode: str = 'qwen',
             vae_scale_factor: int = 8,
             latent_channels: int = 16,
-            split: str = 'oss',
+            split: str = 'pair',
             **kwargs):
         del kwargs
         self.resize_mode, self.latent_channels = _resolve_resize(
             resize_mode, latent_channels)
         self.vae_scale_factor = vae_scale_factor
         self.seed = int(seed)
-        self.split = str(split or 'oss')
-        self.tasks = tuple(tasks or DEFAULT_OSS_TASKS)
+        self.split = str(split or 'pair')
+        self.tasks = tuple(tasks or DEFAULT_PAIR_TASKS)
         self.samples_per_task = int(samples_per_task)
 
         jsonl_full = jsonl_path if os.path.isabs(jsonl_path) else os.path.join(
@@ -308,12 +308,12 @@ class OssEditSample(Dataset):
 
         logger = get_root_logger()
         logger.info(
-            f'OssEditSample: {len(self.samples)} fixed samples '
+            f'PairEditSample: {len(self.samples)} fixed samples '
             f'({self.samples_per_task}/task × {len(self.tasks)} tasks, '
             f'seed={self.seed}, resize_mode={self.resize_mode}) from {jsonl_full}')
         if missing:
             logger.warning(
-                'OssEditSample: insufficient examples for: ' + ', '.join(missing))
+                'PairEditSample: insufficient examples for: ' + ', '.join(missing))
 
     def __len__(self):
         return len(self.samples)

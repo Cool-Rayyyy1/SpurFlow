@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Qwen-Image-Edit alpha + split-stage PIID + source-cond DINO GAN.
 
 Same GAN recipe as Flux ``alph_dino_gan``:

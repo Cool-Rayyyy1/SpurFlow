@@ -1,6 +1,6 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 #
-# TDM-style DINO feature discriminator for EditFlow step-2 GAN:
+# TDM-style DINO feature discriminator for SpurFlow step-2 GAN:
 #   frozen DINOv3 intermediate features + trainable conv head(s)
 #   shared global/local random crops for real & fake RGB images in [0, 1]
 #   optional alpha-guided mask local crop (low alpha = edit region)

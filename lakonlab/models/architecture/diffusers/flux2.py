@@ -1,4 +1,4 @@
-# Copyright (c) 2026 EditFlow contributors
+# Copyright (c) 2026 SpurFlow contributors
 """Editable wrapper around diffusers ``Flux2Transformer2DModel`` (teacher).
 
 FLUX.2-klein-base-9B: ``guidance_embeds=false`` so DiT always gets
@@ -117,7 +117,7 @@ else:
                 lora_rank=16,
                 lora_dropout=0.0,
                 **kwargs):
-            # Official Klein config uses transformer patch_size=1; EditFlow keeps
+            # Official Klein config uses transformer patch_size=1; SpurFlow keeps
             # an outer patch_size=2 for 32->128 channel packing before the DiT.
             kwargs.setdefault('patch_size', 1)
             kwargs.setdefault('guidance_embeds', False)
@@ -246,7 +246,7 @@ else:
 
             # Official Flux2KleinPipeline: scheduler_t in [0, 1000] is passed as
             # t/1000, then Flux2Transformer2DModel.forward does timestep * 1000.
-            # EditFlow uses num_timesteps=1, so t is already sigma in [0, 1]
+            # SpurFlow uses num_timesteps=1, so t is already sigma in [0, 1]
             # (same as Kontext). Pass t as-is; do NOT divide by 1000 again.
             output = super().forward(
                 hidden_states=tokens.to(dtype=dtype),

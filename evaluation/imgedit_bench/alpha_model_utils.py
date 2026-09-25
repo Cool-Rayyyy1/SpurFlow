@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 EVAL_ROOT = Path(__file__).resolve().parent
-EDITFLOW_ROOT = EVAL_ROOT.parents[1]
+PROJECT_ROOT = EVAL_ROOT.parents[1]
 DEFAULT_ALPHA_CONFIG = (
-    EDITFLOW_ROOT / 'configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data.py'
+    PROJECT_ROOT / 'configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data.py'
 )
 
 
@@ -51,7 +51,7 @@ def build_alpha_vis_model(config_path: Path, ckpt_path: Path, device: str):
     ckpt_path = Path(ckpt_path)
     config_path = resolve_alpha_config(config_path)
     validate_continuous_alpha_ckpt(ckpt_path)
-    _ensure_path(str(EDITFLOW_ROOT))
+    _ensure_path(str(PROJECT_ROOT))
 
     from lakonlab.apis.inference import init_model
 
