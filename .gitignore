@@ -22,6 +22,7 @@ evaluation/**/results/
 
 # checkpoints
 checkpoints/
+pretrain/
 *.pth
 *.pt
 *.ckpt
