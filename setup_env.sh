@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# EditFlow environment. Activate with:
-#   source <project_dir>/setup_env.sh
+# Activate the training environment from this repository.
+#   CONDA_ROOT=/path/to/anaconda3 source setup_env.sh
 set -euo pipefail
 
-CONDA_ROOT="/mnt/afs_gaochengmin/anaconda3"
-ENV_NAME="arcflow"
-# Resolve the project dir from this file's own location (works after copies/renames).
+CONDA_ROOT="${CONDA_ROOT:-${HOME}/anaconda3}"
+ENV_NAME="${ENV_NAME:-arcflow}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-export HF_ENDPOINT='https://hf-mirror.com'
 
 # shellcheck source=/dev/null
 source "${CONDA_ROOT}/etc/profile.d/conda.sh"

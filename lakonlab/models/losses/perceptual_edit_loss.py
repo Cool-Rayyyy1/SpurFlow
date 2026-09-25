@@ -18,11 +18,11 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 DEFAULT_LPIPS_WEIGHTS = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth')
+    '/path/to/pretrained_models/lpips/vgg.pth')
 DEFAULT_VGG16_WEIGHTS = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth')
+    '/path/to/pretrained_models/lpips/vgg16-397923af.pth')
 DEFAULT_DINO_WEIGHTS = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/'
+    '/path/to/pretrained_models/'
     'dinov3-vitl16-pretrain-lvd1689m/model.safetensors')
 
 

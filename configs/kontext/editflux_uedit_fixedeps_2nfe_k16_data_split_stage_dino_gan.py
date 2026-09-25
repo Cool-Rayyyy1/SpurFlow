@@ -5,9 +5,9 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # Fake: Kontext unpatchify + VAE decode -> shared global/local crops -> frozen DINOv3
 #       intermediate features -> trainable conv head. Real: edited_images, same crops.
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dino_gan'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+dinov3_model = '/path/to/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
     type='LatentDiffusionImageEditSplitStageDinoFeatureGAN',

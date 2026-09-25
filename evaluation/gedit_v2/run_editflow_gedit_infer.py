@@ -41,9 +41,9 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     write_mixture_stats_files,
 )
 
-DEFAULT_META = Path("/mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json")
+DEFAULT_META = Path("/path/to/data/benchmark/GEdit_v2/gedit_v2_meta.json")
 DEFAULT_KONTEXT = os.environ.get(
-    "KONTEXT_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev"
+    "KONTEXT_MODEL_PATH", "/path/to/checkpoints/FLUX.1-Kontext-dev"
 )
 
 

@@ -2,9 +2,9 @@
 # Smoke test GPT scoring API — no GPU, single Basic sample.
 set -euo pipefail
 
-EDITFLOW_DIR="${EDITFLOW_DIR:-/mnt/afs_zhangyunzhe/EditFlow}"
+EDITFLOW_DIR="${EDITFLOW_DIR:-/path/to/EditFlow}"
 EVAL_DIR="${EDITFLOW_DIR}/evaluation/imgedit_bench"
-CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_zhangyunzhe/miniconda3}"
+CONDA_ROOT="${CONDA_ROOT:-/path/to/miniconda3}"
 CONDA_ENV="${CONDA_ENV:-arcflow}"
 
 # shellcheck source=/dev/null

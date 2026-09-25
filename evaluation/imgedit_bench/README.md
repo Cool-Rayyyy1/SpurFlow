@@ -9,7 +9,7 @@ Benchmark from [PKU-YuanGroup/ImgEdit](https://github.com/PKU-YuanGroup/ImgEdit)
 Downloaded to:
 
 ```
-/mnt/afs_zhangyunzhe/dataset/imgedit/
+/path/to/dataset/imgedit/
 ├── Benchmark.tar
 └── benchmark/Benchmark/
     ├── singleturn/     # Basic-Bench images

@@ -27,9 +27,9 @@ DEFAULT_GEDIT_CATEGORIES = (
     'text_change',
 )
 
-# GEdit-v2 edit types from /mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json
-DEFAULT_GEDIT_V2_META = '/mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json'
-DEFAULT_GEDIT_V2_ROOT = '/mnt/afs_caiqi/data/benchmark/GEdit_v2'
+# GEdit-v2 edit types from /path/to/data/benchmark/GEdit_v2/gedit_v2_meta.json
+DEFAULT_GEDIT_V2_META = '/path/to/data/benchmark/GEdit_v2/gedit_v2_meta.json'
+DEFAULT_GEDIT_V2_ROOT = '/path/to/data/benchmark/GEdit_v2'
 DEFAULT_GEDIT_V2_CATEGORIES = (
     'background_change',
     'camera_motion',
@@ -110,8 +110,8 @@ class GEditBenchSample(Dataset):
     def __init__(
             self,
             annotations_path: str = (
-                '/mnt/afs_gaochengmin/data/benchmark/GEdit-Bench/GEdit-Bench.json'),
-            bench_root: str = '/mnt/afs_gaochengmin/data/benchmark/GEdit-Bench',
+                '/path/to/data/benchmark/GEdit-Bench/GEdit-Bench.json'),
+            bench_root: str = '/path/to/data/benchmark/GEdit-Bench',
             categories: Optional[Sequence[str]] = None,
             samples_per_category: int = 1,
             language: Optional[str] = 'en',
@@ -231,7 +231,7 @@ class OssEditSample(Dataset):
 
     def __init__(
             self,
-            data_root: str = '/mnt/afs_gaochengmin/data/oss_edit',
+            data_root: str = '/path/to/data/oss_edit',
             jsonl_path: str = 'metadata.jsonl',
             tasks: Optional[Sequence[str]] = None,
             samples_per_task: int = 1,

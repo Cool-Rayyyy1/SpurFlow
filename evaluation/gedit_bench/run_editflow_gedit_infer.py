@@ -41,15 +41,15 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     try_open_rgb_image,
 )
 
-DEFAULT_META = Path("/mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json")
+DEFAULT_META = Path("/path/to/data/benchmark/GEdit_v2/gedit_v2_meta.json")
 DEFAULT_KONTEXT = os.environ.get(
-    "KONTEXT_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev"
+    "KONTEXT_MODEL_PATH", "/path/to/checkpoints/FLUX.1-Kontext-dev"
 )
 DEFAULT_QWEN = os.environ.get(
-    "QWEN_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511"
+    "QWEN_MODEL_PATH", "/path/to/checkpoints/Qwen-Image-Edit-2511"
 )
 DEFAULT_KLEIN = os.environ.get(
-    "KLEIN_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B"
+    "KLEIN_MODEL_PATH", "/path/to/checkpoints/FLUX.2-klein-base-9B"
 )
 
 # Official pipeline defaults.

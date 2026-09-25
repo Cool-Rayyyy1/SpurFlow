@@ -2,7 +2,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval.py']
 
 # `train_flux.sh` overrides name/work_dir/resume_from from NFE (e.g. gmkontext_k16_2nfe_pico400k).
 name = 'gmkontext_k16_2nfe_pico400k'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(

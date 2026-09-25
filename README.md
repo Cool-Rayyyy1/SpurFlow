@@ -1,56 +1,67 @@
 # EditFlow
 
-EditFlow distills **FLUX.1-Kontext-dev** into a few-step image editor using the ArcFlow non-linear flow trajectory framework.
+EditFlow distills FLUX.1 Kontext into a 2-step image editor. A learned alpha map mixes the reference latent into the student velocity, and a second stage adds a source-conditional discriminator on the decoded edit.
 
-## Dataset
-
-Training uses [pico-banana-400k](https://huggingface.co/datasets/pico-banana-400k) at `/mnt/afs_zhangyunzhe/dataset/pico-banana-400k`:
-
-- **Source image**: `local_input_image` under `source_images/`
-- **Edited target**: `output_image` under `edited_images/`
-- **Instruction**: `text`
-
-## Model
-
-- Teacher / base: `FLUX.1-Kontext-dev`
-- Student: ArcFlow adapter (K=16 Gaussians, LoRA) on Kontext transformer
-- Conditioning: reference image latents concatenated along sequence dim (Kontext-style)
+The teacher is frozen FLUX.1 Kontext with distilled classifier-free guidance. The student is a LoRA-adapted Kontext transformer with K=16 Gaussian heads and an alpha head. The reference image is encoded to latents and concatenated along the sequence dimension, in the same layout as Kontext.
 
 ## Training
 
-```bash
-source /mnt/afs_zhangyunzhe/EditFlow/setup_env.sh
-bash train_flux.sh
-```
+Training has two stages. Warmup learns the alpha editor with no discriminator. Formal training loads that checkpoint and continues with one shared 2-step rollout plus a GAN.
 
-Common overrides:
+Set paths in the environment. Do not hard-code them into the configs.
 
 ```bash
-NFE=2 NPROC=2 EVAL=1 bash train_flux.sh
-NFE=4 CKPT_INTERVAL=500 EVAL=0 bash train_flux.sh
+export KONTEXT_MODEL=/path/to/FLUX.1-Kontext-dev
+export PICO_ROOT=/path/to/paired_edit_set_a
+export OSS_ROOT=/path/to/paired_edit_set_b
+export CONDA_ROOT=/path/to/anaconda3
+source setup_env.sh
 ```
 
-Checkpoints: `checkpoints/gmkontext_k16_{NFE}nfe_pico400k/`  
-Logs / samples: `work_dirs/gmkontext_k16_{NFE}nfe_pico400k/`
+Each paired set needs a source image, an edited image, and an edit instruction. `OSS_ROOT` can be a directory of pairs; the launcher writes `metadata.jsonl` if it is missing. The default mix is 30% of the second set and 70% of the first.
 
-## Config
-
-Main config: `configs/kontext/editflux_2nfe_k16.py`
-
-Derived from ArcFlow FLUX distillation with these edits:
-
-- `LatentDiffusionImageEdit` encodes source + target images
-- `ImageEdit` dataset reads pico-banana jsonl
-- Kontext transformer (`patch_size=1`) replaces FLUX.1-dev
-
-## Export / Inference
-
-Use the same export script as ArcFlow after training:
+Warmup, from the Kontext backbone and randomly initialized alpha and delta heads:
 
 ```bash
-python export_arcflow_to_diffusers.py configs/kontext/editflux_2nfe_k16.py \
-  --ckpt checkpoints/gmkontext_k16_2nfe_pico400k/latest.pth \
-  --out-dir checkpoints/gmkontext_k16_2nfe_pico400k/diffusers_adapter
+bash train_flux_kontext_warmup.sh
 ```
 
-For Kontext inference, load the adapter into `FluxKontextPipeline` (see ArcFlow `inference_flux.py` and adapt for Kontext + reference image).
+Formal training. `PRETRAIN_CKPT` is a warmup checkpoint. `DINOV3_MODEL` is a DINOv3 ViT-L/16 weight file.
+
+```bash
+export DINOV3_MODEL=/path/to/dinov3-vitl16/model.safetensors
+export PRETRAIN_CKPT=checkpoints/flux_kontext_warmup/<run_id>/latest.pth
+bash train_flux_kontext.sh
+```
+
+Useful overrides:
+
+```bash
+NFE=2 TOTAL_ITERS=50000 OSS_PROB=0.3 PICO_PROB=0.7 bash train_flux_kontext_warmup.sh
+NUM_GPUS=8 GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_kontext.sh
+GAN_WEIGHT=0.05 GAN_WARMUP_ITERS=0 GAN_RAMP_ITERS=0 bash train_flux_kontext.sh
+FRESH=1 bash train_flux_kontext_warmup.sh
+```
+
+Checkpoints and samples:
+
+- `checkpoints/flux_kontext_warmup/`
+- `checkpoints/flux_kontext/`
+- `work_dirs/flux_kontext_warmup/`
+- `work_dirs/flux_kontext/`
+
+## What the formal stage optimizes
+
+One 2-step split-stage rollout, not a second independent sampling pass:
+
+1. At `t=1`, the student matches the teacher.
+2. From that endpoint to `t=0`, the student matches the teacher, matches the direct edit residual, and receives a GAN loss on the VAE-decoded image.
+
+The discriminator is a frozen DINOv3 backbone with a trainable head. A real example is the reference image paired with the dataset edit. A fake example is the same reference paired with the student decode. Both views share a full-frame crop and a local crop taken from the low-alpha edit region. Features are channel-concatenated before the head. The GAN term is a softplus logistic loss with weight `GAN_WEIGHT` (default `0.05`).
+
+Configs:
+
+- Warmup: `configs/kontext/editflux_uedit_fixedeps_2nfe_k16_alpha_data_oss_pico.py`
+- Formal: `configs/kontext/editflux_kontext_split_stage_alpha_dino_gan.py`
+
+Launch scripts override model, data, and checkpoint paths from the environment.

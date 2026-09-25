@@ -5,12 +5,12 @@ _base_ = ['./editflux_2nfe_k16_data.py']
 # Only the training data changes: default 30% oss_edit + 70% pico-banana-400k.
 # Override at launch with OSS_PROB / PICO_PROB.
 
-pico_root = '/mnt/afs_gaochengmin/data/pico-banana-400k'
-oss_root = '/mnt/afs_gaochengmin/data/oss_edit'
+pico_root = '/path/to/data/pico-banana-400k'
+oss_root = '/path/to/data/oss_edit'
 name = 'gmkontext_k16_2nfe_oss30_pico70_data'
 work_dir = f'work_dirs/{name}'
 resume_from = f'checkpoints/{name}/latest.pth'
-kontext_model = '/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/checkpoints/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(

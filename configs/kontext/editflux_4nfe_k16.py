@@ -2,7 +2,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 
 # 4-NFE ArcFlow ImgEdit checkpoint config for gmkontext_arcflow_4nfe_pico400k.
 name = 'gmkontext_arcflow_4nfe_pico400k'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(

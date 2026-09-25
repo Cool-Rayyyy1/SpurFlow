@@ -4,8 +4,8 @@ _base_ = ['./editflux_uedit_fixedeps_2nfe_k16_data_step2_alph_dino_gan.py']
 # Alpha student (ArcFluxEditNewAlphaTransformer2DModel + proj_out_alpha).
 # Child datasets share ImageEdit kontext resize (preferred-resolution buckets).
 
-pico_root = '/mnt/afs_gaochengmin/data/pico-banana-400k'
-oss_root = '/mnt/afs_gaochengmin/data/oss_edit'
+pico_root = '/path/to/data/pico-banana-400k'
+oss_root = '/path/to/data/oss_edit'
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_oss70_pico30_step2_alph_dino_gan'
 work_dir = f'work_dirs/{name}'
 
@@ -62,9 +62,9 @@ sample_eval = dict(
                 type='ImgEditBenchSample',
                 split='imgedit',
                 annotations_path=(
-                    '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+                    ''
                     'evaluation/imgedit_bench/annotations/basic_edit.json'),
-                bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
+                bench_root='/path/to/data/imgedit/benchmark/Benchmark',
                 categories=[
                     'action', 'add', 'adjust', 'background', 'compose',
                     'extract', 'remove', 'replace', 'style'],
@@ -76,8 +76,8 @@ sample_eval = dict(
                 type='GEditV2Sample',
                 split='gedit_v2',
                 annotations_path=(
-                    '/mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json'),
-                bench_root='/mnt/afs_caiqi/data/benchmark/GEdit_v2',
+                    '/path/to/data/benchmark/GEdit_v2/gedit_v2_meta.json'),
+                bench_root='/path/to/data/benchmark/GEdit_v2',
                 samples_per_category=3,
                 language=None,
                 seed=42,

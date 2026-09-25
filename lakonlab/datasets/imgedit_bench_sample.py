@@ -129,10 +129,10 @@ class ImgEditBenchSample(Dataset):
     def __init__(
             self,
             annotations_path: str = (
-                '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+                ''
                 'evaluation/imgedit_bench/annotations/basic_edit.json'),
             bench_root: str = (
-                '/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark'),
+                '/path/to/data/imgedit/benchmark/Benchmark'),
             categories: Optional[Sequence[str]] = None,
             samples_per_category: int = 2,
             seed: int = 42,

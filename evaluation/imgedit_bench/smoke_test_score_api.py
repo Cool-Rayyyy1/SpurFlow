@@ -16,7 +16,7 @@ EDITFLOW_ROOT = EVAL_ROOT.parents[1]
 DEFAULT_BENCH_ROOT = Path(
     os.environ.get(
         "IMGEDIT_BENCH_ROOT",
-        "/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark",
+        "/path/to/dataset/imgedit/benchmark/Benchmark",
     )
 )
 

@@ -32,7 +32,7 @@ if str(EDITFLOW_ROOT) not in sys.path:
 from run_editflow_imgedit_infer import build_teacher_pipeline  # noqa: E402
 
 DEFAULT_MODEL = os.environ.get(
-    "KONTEXT_MODEL_PATH", "/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev")
+    "KONTEXT_MODEL_PATH", "/path/to/pretrained_models/FLUX.1-Kontext-dev")
 DEFAULT_IMAGE = EDITFLOW_ROOT / "pikachu.png"
 DEFAULT_PROMPT = (
     "Put an Ash Ketchum-style Pokemon Trainer cap on Pikachu, with a red-and-white "

@@ -242,7 +242,7 @@ class PretrainedFlux2KleinTextEncoder(nn.Module):
     """Qwen3 text encoder used by FLUX.2 Klein (no CLIP pooled projections)."""
 
     def __init__(self,
-                 from_pretrained='/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B',
+                 from_pretrained='/path/to/checkpoints/FLUX.2-klein-base-9B',
                  freeze=True,
                  eval_mode=True,
                  torch_dtype='bfloat16',

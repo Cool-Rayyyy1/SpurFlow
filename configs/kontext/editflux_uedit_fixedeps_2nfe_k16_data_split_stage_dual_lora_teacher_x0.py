@@ -13,12 +13,12 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 # LoRA/heads do not participate in loss. DDP needs unused-parameter detection.
 find_unused_parameters = True
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-lpips_weights = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg.pth'
-lpips_vgg16 = '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'
+lpips_weights = '/path/to/pretrained_models/lpips/vgg.pth'
+lpips_vgg16 = '/path/to/pretrained_models/lpips/vgg16-397923af.pth'
 dinov3_model = (
-    '/mnt/afs_zhangyunzhe/pretrained_models/'
+    '/path/to/pretrained_models/'
     'dinov3-vitl16-pretrain-lvd1689m/model.safetensors')
 
 model = dict(
@@ -154,9 +154,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            '/path/to/EditFlow/evaluation/imgedit_bench/'
             'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        bench_root='/path/to/dataset/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],

@@ -10,7 +10,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 # No LPIPS/DINO wrapper (train-only).
 
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_dual_lora_teacher_x0'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(

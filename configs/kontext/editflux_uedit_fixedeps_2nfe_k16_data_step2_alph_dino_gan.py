@@ -8,9 +8,9 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 #   D(ref, x_edit)=1, D(ref, x_student)=0 (paired reals only; unpaired reals off).
 # GAN grads: through both NFE steps (gan_grad_step2_only=False).
 name = 'gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+dinov3_model = '/path/to/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
     type='LatentDiffusionImageEditStep2AlphaDinoFeatureGAN',
@@ -203,9 +203,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
+            '/path/to/EditFlow/evaluation/imgedit_bench/'
             'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+        bench_root='/path/to/dataset/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],

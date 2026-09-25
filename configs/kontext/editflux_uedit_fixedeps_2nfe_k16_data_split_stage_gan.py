@@ -6,9 +6,9 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 # (override split_stage_gan_warmup_iters / split_stage_gan_ramp_iters to delay or ramp).
 # Fake: Kontext unpatchify + VAE decode, then DINOv3 Resize. Real: edited_images + Resize.
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage_gan'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+dinov3_model = '/path/to/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
     type='LatentDiffusionImageEditSplitStageGAN',

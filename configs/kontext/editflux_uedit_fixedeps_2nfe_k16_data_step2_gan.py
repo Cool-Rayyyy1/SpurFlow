@@ -4,9 +4,9 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 # Standard fixed-eps PIID (not split-stage rollout) + step-2 DINOv3 GAN on 2-NFE endpoint.
 # GAN fake: same 2-NFE rollout as forward_test. Real: edited_images -> DINOv3 Resize(224).
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_step2_gan'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+dinov3_model = '/path/to/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
     type='LatentDiffusionImageEditStep2GAN',

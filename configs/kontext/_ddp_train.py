@@ -7,7 +7,7 @@ model = dict(
 
     text_encoder=dict(
         type='PretrainedFluxTextEncoder',
-        from_pretrained='/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev',
+        from_pretrained='/path/to/checkpoints/FLUX.1-Kontext-dev',
     )
 )
 train_cfg = dict(

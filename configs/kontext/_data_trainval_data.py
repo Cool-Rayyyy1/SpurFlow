@@ -1,4 +1,4 @@
-data_root = '/mnt/afs_gaochengmin/data/pico-banana-400k'
+data_root = '/path/to/data/pico-banana-400k'
 
 # Data-based distillation: x0 = edited target latent (forward-diffused + noise).
 # Rows without a valid edited image on disk are skipped.

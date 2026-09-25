@@ -1,4 +1,4 @@
-data_root = '/mnt/afs_gaochengmin/data/pico-banana-400k'
+data_root = '/path/to/data/pico-banana-400k'
 
 # pico-banana-400k: source image + edited target + edit instruction
 data = dict(

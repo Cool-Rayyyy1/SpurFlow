@@ -1,5 +1,5 @@
 # Copyright (c) 2026 EditFlow contributors
-"""OSS banana-edit pairs under /mnt/afs_gaochengmin/data/oss_edit.
+"""OSS banana-edit pairs under /path/to/data/oss_edit.
 
 Same resize / latent logic as ``ImageEdit`` (kontext / qwen / flux2 / center_crop).
 JSONL is built by ``tools/build_oss_edit_jsonl.py``.
@@ -21,7 +21,7 @@ class OssEdit(ImageEdit):
 
     def __init__(
             self,
-            data_root: str = '/mnt/afs_gaochengmin/data/oss_edit',
+            data_root: str = '/path/to/data/oss_edit',
             jsonl_path: str = 'metadata.jsonl',
             source_column: str = 'input_path',
             target_column: str = 'output_path',

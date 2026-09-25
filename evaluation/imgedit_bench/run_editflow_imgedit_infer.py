@@ -27,14 +27,14 @@ if str(EDITFLOW_ROOT) not in sys.path:
 DEFAULT_BENCH_ROOT = Path(
     os.environ.get(
         "IMGEDIT_BENCH_ROOT",
-        "/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark",
+        "/path/to/data/imgedit/benchmark/Benchmark",
     )
 )
 DEFAULT_KONTEXT_MODEL = os.environ.get(
-    "KONTEXT_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev"
+    "KONTEXT_MODEL_PATH", "/path/to/checkpoints/FLUX.1-Kontext-dev"
 )
 DEFAULT_KLEIN_MODEL = os.environ.get(
-    "KLEIN_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B"
+    "KLEIN_MODEL_PATH", "/path/to/checkpoints/FLUX.2-klein-base-9B"
 )
 DEFAULT_OUTPUT_ROOT = EVAL_ROOT / "outputs"
 

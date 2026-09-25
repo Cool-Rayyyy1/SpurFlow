@@ -3,7 +3,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 # `train_flux_edit_teacherinv_nopol_data.sh` -> gmkontext_uedit_teacherinv_nopol_k16_2nfe_pico400k
 # Residual parameterization; deltax_init=kaiming (random weights, not zero).
 name = 'gmkontext_uedit_teacherinv_nopol_k16_2nfe_pico400k'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(

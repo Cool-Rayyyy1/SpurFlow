@@ -45,7 +45,7 @@ class LatentDiffusionImageEditDualLoraTeacherX0Lpips(LatentDiffusionImageEdit):
             weights_path=lpips.get('weights_path', DEFAULT_LPIPS_WEIGHTS),
             vgg_weights_path=lpips.get(
                 'vgg_weights_path',
-                '/mnt/afs_zhangyunzhe/pretrained_models/lpips/vgg16-397923af.pth'),
+                '/path/to/pretrained_models/lpips/vgg16-397923af.pth'),
             spatial=bool(lpips.get('spatial', False)),
         )
         self.dino_loss = FrozenDinoFeatureLoss(

@@ -11,7 +11,7 @@ _base_ = ['./_ddp_train.py', './_data_trainval_data.py']
 # velocity; step-2 gradients backpropagate into step-1.
 # split_stage_step2_warmup_iters linearly ramps step-2 loss from 0 (step-1 only).
 name = 'gmkontext_uedit_fixedeps_k16_2nfe_pico400k_split_stage'
-kontext_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev'
+kontext_model = '/path/to/pretrained_models/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
