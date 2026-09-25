@@ -1,11 +1,10 @@
 _base_ = ['./editflux_uedit_fixedeps_2nfe_k16_alpha_data.py']
 
 # SpurFlow warmup. Sigmoid alpha, 2-NFE, no GAN.
-# Mix two paired edit sets. Paths are overridden by train_flux_kontext_warmup.sh.
+# One paired edit dataset. Paths are overridden by train_flux_kontext_warmup.sh.
 # Student is cond-only. Teacher uses distilled CFG.
 
-data_b_root = '/path/to/paired_edit_set_b'
-data_a_root = '/path/to/paired_edit_set_a'
+data_root = '/path/to/dataset'
 kontext_model = '/path/to/checkpoints/FLUX.1-Kontext-dev'
 kontext_transformer = f'{kontext_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 name = 'spurflow_warmup'
@@ -25,37 +24,20 @@ model = dict(
 data = dict(
     train=dict(
         _delete_=True,
-        type='ProbMixDataset',
-        probs=[0.3, 0.7],
-        datasets=[
-            dict(
-                type='PairEdit',
-                data_root=data_a_root,
-                jsonl_path='metadata.jsonl',
-                require_edited=True,
-                resize_mode='kontext',
-                image_size=1024,
-                load_unpaired_edited=False,
-            ),
-            dict(
-                type='ImageEdit',
-                data_root=data_b_root,
-                jsonl_path='metadata.jsonl',
-                edited_images_dir='edited_images',
-                image_size=1024,
-                require_edited=True,
-                resize_mode='kontext',
-                load_unpaired_edited=False,
-                end_ind=-128,
-            ),
-        ],
+        type='PairEdit',
+        data_root=data_root,
+        jsonl_path='metadata.jsonl',
+        require_edited=True,
+        resize_mode='kontext',
+        image_size=1024,
+        load_unpaired_edited=False,
+        end_ind=-128,
     ),
     val=dict(
         _delete_=True,
-        type='ImageEdit',
-        data_root=data_b_root,
+        type='PairEdit',
+        data_root=data_root,
         jsonl_path='metadata.jsonl',
-        edited_images_dir='edited_images',
         image_size=1024,
         resize_mode='kontext',
         start_ind=-128,

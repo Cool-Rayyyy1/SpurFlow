@@ -14,11 +14,10 @@
 # Required:
 #   KONTEXT_MODEL   local FLUX.1-Kontext-dev directory
 #   DINOV3_MODEL    DINOv3 ViT-L/16 safetensors
-#   DATA_A_ROOT     paired edit set A (metadata.jsonl, or built)
-#   DATA_B_ROOT     paired edit set B (metadata.jsonl, or DATA_B_JSONL)
+#   DATA_ROOT       paired edit dataset (metadata.jsonl, or built)
 #   PRETRAIN_CKPT   warmup checkpoint (relative to the repo, or absolute)
 # Optional:
-#   DATA_A_PROB=0.3 DATA_B_PROB=0.7 NFE=2 TOTAL_ITERS=25000
+#   DATA_JSONL=metadata.jsonl NFE=2 TOTAL_ITERS=25000
 #   GAN_WEIGHT=0.05 GAN_WARMUP_ITERS=0 GAN_RAMP_ITERS=0
 #   TEACHER_LOSS_WEIGHT=0.5 DIFFUSION_LOSS_WEIGHT=0.5
 #   GAN_GRAD_STEP2_ONLY=false
@@ -56,12 +55,8 @@ SAMPLES_PER_CATEGORY="${SAMPLES_PER_CATEGORY:-5}"
 GEDIT_SAMPLES_PER_CATEGORY="${GEDIT_SAMPLES_PER_CATEGORY:-3}"
 TOTAL_ITERS="${TOTAL_ITERS:-25000}"
 EVAL="${EVAL:-1}"
-DATA_B_ROOT="${DATA_B_ROOT:-}"
-DATA_A_ROOT="${DATA_A_ROOT:-}"
-DATA_A_JSONL="${DATA_A_JSONL:-${DATA_A_ROOT}/metadata.jsonl}"
-DATA_B_JSONL="${DATA_B_JSONL:-metadata.jsonl}"
-DATA_A_PROB="${DATA_A_PROB:-0.3}"
-DATA_B_PROB="${DATA_B_PROB:-0.7}"
+DATA_ROOT="${DATA_ROOT:-}"
+DATA_JSONL="${DATA_JSONL:-${DATA_ROOT}/metadata.jsonl}"
 KONTEXT_MODEL="${KONTEXT_MODEL:-}"
 DINOV3_MODEL="${DINOV3_MODEL:-}"
 IMGEDIT_ANN="${IMGEDIT_ANN:-${PROJECT_DIR}/evaluation/imgedit_bench/annotations/basic_edit.json}"
@@ -105,25 +100,25 @@ USE_MASK_LOCAL_CROP="${USE_MASK_LOCAL_CROP:-true}"
 NUM_LOCAL_CROPS="${NUM_LOCAL_CROPS:-1}"
 # --------------------------------
 
-if [[ -z "${KONTEXT_MODEL}" || -z "${DINOV3_MODEL}" || -z "${DATA_B_ROOT}" || -z "${DATA_A_ROOT}" ]]; then
-    echo "Set KONTEXT_MODEL, DINOV3_MODEL, DATA_B_ROOT, and DATA_A_ROOT." >&2
+if [[ -z "${KONTEXT_MODEL}" || -z "${DINOV3_MODEL}" || -z "${DATA_ROOT}" ]]; then
+    echo "Set KONTEXT_MODEL, DINOV3_MODEL, and DATA_ROOT." >&2
     exit 1
 fi
 
 RUN_NAME="${RUN_NAME:-spurflow}"
 CONFIG="${PROJECT_DIR}/configs/kontext/editflux_kontext_split_stage_alpha_dino_gan.py"
 
-if [[ ! -f "${DATA_A_JSONL}" ]]; then
+if [[ ! -f "${DATA_JSONL}" ]]; then
     if [[ "${RANK:-0}" == "0" ]]; then
-        echo "[data] building ${DATA_A_JSONL}"
-        python "${PROJECT_DIR}/tools/build_pair_jsonl.py" --root "${DATA_A_ROOT}" --out "${DATA_A_JSONL}"
+        echo "[data] building ${DATA_JSONL}"
+        python "${PROJECT_DIR}/tools/build_pair_jsonl.py" --root "${DATA_ROOT}" --out "${DATA_JSONL}"
     else
-        echo "[data] waiting for ${DATA_A_JSONL}"
+        echo "[data] waiting for ${DATA_JSONL}"
         for _ in $(seq 1 120); do
-            [[ -f "${DATA_A_JSONL}" ]] && break
+            [[ -f "${DATA_JSONL}" ]] && break
             sleep 5
         done
-        [[ -f "${DATA_A_JSONL}" ]] || { echo "[data] timeout waiting for ${DATA_A_JSONL}" >&2; exit 1; }
+        [[ -f "${DATA_JSONL}" ]] || { echo "[data] timeout waiting for ${DATA_JSONL}" >&2; exit 1; }
     fi
 fi
 
@@ -222,13 +217,10 @@ CFG_OPTS=(
     "sample_eval.dataset.datasets.0.annotations_path=${IMGEDIT_ANN}"
     "sample_eval.dataset.datasets.1.samples_per_category=${GEDIT_SAMPLES_PER_CATEGORY}"
     "total_iters=${TOTAL_ITERS}"
-    "data.train.probs=[${DATA_A_PROB},${DATA_B_PROB}]"
-    "data.train.datasets.0.data_root=${DATA_A_ROOT}"
-    "data.train.datasets.0.jsonl_path=${DATA_A_JSONL}"
-    "data.train.datasets.1.data_root=${DATA_B_ROOT}"
-    "data.train.datasets.1.jsonl_path=${DATA_B_JSONL}"
-    "data.val.data_root=${DATA_B_ROOT}"
-    "data.val.jsonl_path=${DATA_B_JSONL}"
+    "data.train.data_root=${DATA_ROOT}"
+    "data.train.jsonl_path=${DATA_JSONL}"
+    "data.val.data_root=${DATA_ROOT}"
+    "data.val.jsonl_path=${DATA_JSONL}"
     "model.vae.from_pretrained=${KONTEXT_MODEL}"
     "model.text_encoder.from_pretrained=${KONTEXT_MODEL}"
     "model.diffusion.denoising.pretrained=${KONTEXT_MODEL}/transformer/diffusion_pytorch_model.safetensors.index.json"
@@ -251,7 +243,7 @@ else
     CFG_OPTS+=("sample_eval.enabled=false")
 fi
 
-echo "Formal FLUX.1 Kontext split-stage GAN (mix ${DATA_A_PROB}/${DATA_B_PROB}): nproc=${NUM_GPUS} total_iters=${TOTAL_ITERS} gan_weight=${GAN_WEIGHT} teacher_w=${TEACHER_LOSS_WEIGHT} diffusion_w=${DIFFUSION_LOSS_WEIGHT} gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY} load_from=${LOAD_FROM:-none} resume_from=${RESUME_FROM:-none} run=${RUN_NAME}"
+echo "Formal FLUX.1 Kontext split-stage GAN: nproc=${NUM_GPUS} total_iters=${TOTAL_ITERS} data=${DATA_ROOT} gan_weight=${GAN_WEIGHT} teacher_w=${TEACHER_LOSS_WEIGHT} diffusion_w=${DIFFUSION_LOSS_WEIGHT} gan_grad_step2_only=${GAN_GRAD_STEP2_ONLY} load_from=${LOAD_FROM:-none} resume_from=${RESUME_FROM:-none} run=${RUN_NAME}"
 
 torchrun \
     --nnodes="${WORLD_SIZE:-1}" \

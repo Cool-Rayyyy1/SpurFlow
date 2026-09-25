@@ -6,14 +6,13 @@ The teacher is frozen FLUX.1 Kontext with distilled classifier-free guidance. Th
 
 ## Data
 
-Training uses two paired edit sets. Each example is a source image, an edited image, and an instruction. Set A is indexed by `metadata.jsonl` (the launcher can build it). Set B uses a jsonl of local image paths. The default mix is 30% set A and 70% set B.
+Training uses a paired edit dataset. Each example is a source image, an edited image, and an instruction. Index it with `metadata.jsonl`; the launcher builds that file when it is missing. The last 128 rows are held out for validation.
 
 ## Training
 
 ```bash
 export KONTEXT_MODEL=/path/to/FLUX.1-Kontext-dev
-export DATA_A_ROOT=/path/to/paired_edit_set_a
-export DATA_B_ROOT=/path/to/paired_edit_set_b
+export DATA_ROOT=/path/to/dataset
 export CONDA_ROOT=/path/to/anaconda3
 source setup_env.sh
 ```
@@ -35,7 +34,7 @@ bash train_flux_kontext.sh
 Useful overrides:
 
 ```bash
-NFE=2 TOTAL_ITERS=50000 DATA_A_PROB=0.3 DATA_B_PROB=0.7 bash train_flux_kontext_warmup.sh
+NFE=2 TOTAL_ITERS=50000 bash train_flux_kontext_warmup.sh
 NUM_GPUS=8 GPU_IDS=0,1,2,3,4,5,6,7 bash train_flux_kontext.sh
 GAN_WEIGHT=0.05 GAN_WARMUP_ITERS=0 GAN_RAMP_ITERS=0 bash train_flux_kontext.sh
 FRESH=1 bash train_flux_kontext_warmup.sh
