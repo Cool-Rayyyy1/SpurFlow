@@ -434,3 +434,18 @@ class LatentDiffusionImageEditSplitStageDinoFeatureGAN(LatentDiffusionImageEditS
     """Split-stage rollout PIID + TDM-style DINO feature GAN on step-2 endpoint."""
 
     train_minibatch = LatentDiffusionImageEditStep2DinoFeatureGAN.train_minibatch
+
+
+@MODELS.register_module()
+class LatentDiffusionImageEditSplitStageAlphaDinoFeatureGAN(LatentDiffusionImageEditSplitStageGAN):
+    """Split-stage rollout PIID + source-conditional alpha-mask DINO GAN.
+
+    The fake image is the decoded endpoint of the same 2-NFE rollout used for
+    the step-2 PIID loss. The step-2 alpha map selects the local crop.
+    """
+
+    _match_spatial = staticmethod(
+        LatentDiffusionImageEditStep2AlphaDinoFeatureGAN._match_spatial)
+    _prepare_gan_real_images = staticmethod(
+        LatentDiffusionImageEditStep2AlphaDinoFeatureGAN._prepare_gan_real_images)
+    train_minibatch = LatentDiffusionImageEditStep2AlphaDinoFeatureGAN.train_minibatch

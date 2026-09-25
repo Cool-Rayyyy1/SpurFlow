@@ -31,6 +31,7 @@ from .latent_diffusion_image_edit_gan import (
     LatentDiffusionImageEditStep2DinoFeatureGAN,
     LatentDiffusionImageEditStep2AlphaDinoFeatureGAN,
     LatentDiffusionImageEditSplitStageDinoFeatureGAN,
+    LatentDiffusionImageEditSplitStageAlphaDinoFeatureGAN,
 )
 from .latent_diffusion_image_edit_dual_lora_teacher_x0_lpips import (
     LatentDiffusionImageEditDualLoraTeacherX0Lpips,
