@@ -38,6 +38,10 @@ data/
 # logs
 wandb/
 logs/
+*.log
+
+# paper figures
+paper_figures/
 
 # python cache
 __pycache__/

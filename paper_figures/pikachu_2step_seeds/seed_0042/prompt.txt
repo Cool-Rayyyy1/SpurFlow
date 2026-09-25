@@ -1,9 +1,0 @@
-image: /mnt/afs_zhangyunzhe/EditFlow/pikachu.png
-prompt: Put an Ash Ketchum-style Pokemon Trainer cap on Pikachu, with a red-and-white design and a green emblem on the front.
-nfe: 2
-guidance: 3.5
-seed: 42
-bg_color: white
-ckpt: /mnt/afs_zhangyunzhe/EditFlow/checkpoints/model/final/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan_new/model/final/gmkontext_uedit_fixedeps_alpha_k16_2nfe_pico400k_step2_alph_dino_gan_new/iter_7000.pth
-sigma_step1_entry: 1.000000
-sigma_step1_end: 0.761905
