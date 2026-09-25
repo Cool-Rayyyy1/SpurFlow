@@ -7,6 +7,7 @@ model = dict(
 
     text_encoder=dict(
         type='PretrainedQwenImageEditTextEncoder',
+        from_pretrained='/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511',
         max_sequence_length=512,
     )
 )

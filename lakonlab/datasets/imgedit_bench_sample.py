@@ -55,6 +55,66 @@ def _to_tensor(image, bucket=None, resize_mode='qwen'):
     return torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
 
 
+def _latent_size_for_bucket(resize_mode, bucket, vae_scale_factor, latent_channels):
+    if resize_mode in ('kontext', 'qwen', 'flux2'):
+        assert bucket is not None
+        bw, bh = bucket
+        return (latent_channels, bh // vae_scale_factor, bw // vae_scale_factor)
+    size = 1024 // vae_scale_factor
+    return (latent_channels, size, size)
+
+
+def build_edit_val_item(
+        meta: Dict,
+        idx: int,
+        seed: int,
+        resize_mode: str,
+        vae_scale_factor: int,
+        latent_channels: int,
+        split: str = ''):
+    """Shared ImgEdit / GEdit / OSS val dump item."""
+    source_arr = _load_rgb(meta['source_path'])
+    src_w, src_h = source_arr.shape[1], source_arr.shape[0]
+
+    bucket = None
+    condition_bucket = None
+    if resize_mode == 'kontext':
+        bucket = _pick_kontext_resolution(src_w, src_h)
+    elif resize_mode == 'qwen':
+        bucket = _pick_qwen_vae_resolution(src_w, src_h)
+        condition_bucket = _pick_qwen_condition_resolution(src_w, src_h)
+    elif resize_mode == 'flux2':
+        bucket = _pick_flux2_resolution(src_w, src_h)
+
+    source_tensor = _to_tensor(source_arr, bucket, resize_mode)
+    latent_size = _latent_size_for_bucket(
+        resize_mode, bucket, vae_scale_factor, latent_channels)
+    noise = torch.randn(
+        latent_size,
+        dtype=torch.float32,
+        generator=torch.Generator().manual_seed(int(seed) + int(idx)))
+
+    data = dict(
+        ids=DC(idx, cpu_only=True),
+        name=DC(meta['prompt'], cpu_only=True),
+        prompt_kwargs=dict(prompt=DC(meta['prompt'], cpu_only=True)),
+        source_images=source_tensor,
+        category=DC(meta['category'], cpu_only=True),
+        example_name=DC(meta['example_name'], cpu_only=True),
+        noise=noise,
+    )
+    if split:
+        data['split'] = DC(str(split), cpu_only=True)
+    if condition_bucket is not None:
+        data['condition_source_images'] = _to_tensor(
+            source_arr, condition_bucket, resize_mode)
+    target_path = meta.get('target_path')
+    if target_path and os.path.isfile(target_path):
+        target_arr = _load_rgb(target_path)
+        data['edited_images'] = _to_tensor(target_arr, bucket, resize_mode)
+    return data
+
+
 @DATASETS.register_module()
 class ImgEditBenchSample(Dataset):
     """ImgEdit-Bench basic suite subset for validation sampling.
@@ -69,16 +129,17 @@ class ImgEditBenchSample(Dataset):
     def __init__(
             self,
             annotations_path: str = (
-                '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-                'annotations/basic_edit.json'),
+                '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+                'evaluation/imgedit_bench/annotations/basic_edit.json'),
             bench_root: str = (
-                '/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark'),
+                '/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark'),
             categories: Optional[Sequence[str]] = None,
             samples_per_category: int = 2,
             seed: int = 42,
             resize_mode: str = 'qwen',
             vae_scale_factor: int = 8,
             latent_channels: int = 16,
+            split: str = '',
             **kwargs):
         del kwargs  # allow unused mmgen dataset kwargs
         assert resize_mode in ('center_crop', 'kontext', 'qwen', 'flux2'), (
@@ -89,6 +150,7 @@ class ImgEditBenchSample(Dataset):
             c.lower() for c in (categories or DEFAULT_CATEGORIES))
         self.samples_per_category = int(samples_per_category)
         self.seed = int(seed)
+        self.split = str(split or '')
         self.resize_mode = resize_mode
         self.vae_scale_factor = vae_scale_factor
         if resize_mode == 'flux2' and latent_channels == 16:
@@ -141,49 +203,13 @@ class ImgEditBenchSample(Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def _latent_size(self, bucket: Optional[Tuple[int, int]]):
-        if self.resize_mode in ('kontext', 'qwen', 'flux2'):
-            assert bucket is not None
-            bw, bh = bucket
-            return (
-                self.latent_channels,
-                bh // self.vae_scale_factor,
-                bw // self.vae_scale_factor)
-        size = 1024 // self.vae_scale_factor
-        return (self.latent_channels, size, size)
-
     def __getitem__(self, idx):
-        meta = self.samples[idx]
-        source_arr = _load_rgb(meta['source_path'])
-        src_w, src_h = source_arr.shape[1], source_arr.shape[0]
-
-        bucket = None
-        condition_bucket = None
-        if self.resize_mode == 'kontext':
-            bucket = _pick_kontext_resolution(src_w, src_h)
-        elif self.resize_mode == 'qwen':
-            bucket = _pick_qwen_vae_resolution(src_w, src_h)
-            condition_bucket = _pick_qwen_condition_resolution(src_w, src_h)
-        elif self.resize_mode == 'flux2':
-            bucket = _pick_flux2_resolution(src_w, src_h)
-
-        source_tensor = _to_tensor(source_arr, bucket, self.resize_mode)
-        latent_size = self._latent_size(bucket)
-        noise = torch.randn(
-            latent_size,
-            dtype=torch.float32,
-            generator=torch.Generator().manual_seed(self.seed + idx))
-
-        data = dict(
-            ids=DC(idx, cpu_only=True),
-            name=DC(meta['prompt'], cpu_only=True),
-            prompt_kwargs=dict(prompt=DC(meta['prompt'], cpu_only=True)),
-            source_images=source_tensor,
-            category=DC(meta['category'], cpu_only=True),
-            example_name=DC(meta['example_name'], cpu_only=True),
-            noise=noise,
+        return build_edit_val_item(
+            self.samples[idx],
+            idx=idx,
+            seed=self.seed,
+            resize_mode=self.resize_mode,
+            vae_scale_factor=self.vae_scale_factor,
+            latent_channels=self.latent_channels,
+            split=self.split,
         )
-        if condition_bucket is not None:
-            data['condition_source_images'] = _to_tensor(
-                source_arr, condition_bucket, self.resize_mode)
-        return data

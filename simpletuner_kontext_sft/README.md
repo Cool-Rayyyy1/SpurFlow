@@ -36,7 +36,7 @@ $DATA_ROOT/simpletuner_pairs/
 ## One-time setup
 
 ```bash
-cd /mnt/afs_zhangyunzhe/EditFlow
+cd /mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow
 
 # isolated conda env (python 3.12); does not modify arcflow
 bash setup_simpletuner_env.sh --install
@@ -48,11 +48,19 @@ MAX_SAMPLES=2000 bash prepare_pico_banana_simpletuner.sh
 # bash prepare_pico_banana_simpletuner.sh
 ```
 
-## Train
+## Data mix
+
+Default training mix is **70% pico-banana + 30% oss_edit** (`probability` on SimpleTuner image backends).
+
+## Launch
+
+Default GPU count is **whatever `nvidia-smi` sees**, not 8. This pod is often 1×H100; launching 8 processes on 1 GPU hangs in NCCL with 0% util.
 
 ```bash
-bash train_flux_kontext_sft_simpletuner.sh          # 8 GPUs
-bash train_flux_kontext_sft_simpletuner.sh 2       # 2 GPUs
+bash train_flux_kontext_sft_simpletuner.sh          # pico70 / oss30; auto-prepares pairs
+
+OSS_PROB=0.5 PICO_PROB=0.5 bash train_flux_kontext_sft_simpletuner.sh
+OSS_PROB=0 bash train_flux_kontext_sft_simpletuner.sh   # pico-only
 
 GPU_IDS=0,1 NUM_GPUS=2 MAX_TRAIN_STEPS=2000 LORA_RANK=16 \
   bash train_flux_kontext_sft_simpletuner.sh
@@ -68,8 +76,8 @@ Caches: `work_dirs/simpletuner_kontext_sft/cache/`
 
 | env | default | meaning |
 | --- | --- | --- |
-| `NUM_GPUS` / positional | 8 | DDP processes |
-| `GPU_IDS` | 0-7 | `CUDA_VISIBLE_DEVICES` |
+| `NUM_GPUS` / positional | auto (`nvidia-smi` count) | DDP processes; extra ranks on missing GPUs hang forever |
+| `GPU_IDS` | all visible | `CUDA_VISIBLE_DEVICES`; missing IDs are dropped |
 | `MODEL_TYPE` | `lora` | `lora` or `full` |
 | `LORA_TYPE` | `standard` | `standard` or `lycoris` |
 | `LORA_RANK` | 32 | PEFT rank |

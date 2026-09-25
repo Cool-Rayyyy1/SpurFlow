@@ -8,7 +8,7 @@ model = dict(
 
     text_encoder=dict(
         type='PretrainedFlux2KleinTextEncoder',
-        from_pretrained='/mnt/afs_zhangyunzhe/pretrained_models/FLUX.2-klein-base-9B',
+        from_pretrained='/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B',
         max_sequence_length=512,
         text_encoder_out_layers=(9, 18, 27),
     )

@@ -145,10 +145,6 @@ def train_model(model,
             val_dataset = build_dataset(sample_eval['dataset'])
         else:
             val_dataset = build_dataset(cfg.data[sample_eval['data']])
-        # Sample dumps must see the FULL dataset on every rank:
-        # EditFlowSampleImagesHook only saves on rank0, while FSDP still requires
-        # all ranks to enter val_step on the same batches. Using DistributedSampler
-        # here shards the set (e.g. 8 GPUs → rank0 only keeps ~1/8 categories).
         sample_loader_cfg = {
             **loader_cfg,
             'shuffle': False,

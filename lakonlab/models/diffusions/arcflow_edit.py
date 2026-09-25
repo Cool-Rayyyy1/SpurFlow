@@ -246,15 +246,18 @@ class ArcFlowEditImitation(ArcFlowImitation):
             x_ref,
             policy_kwargs,
             num_batches,
-            kwargs):
+            kwargs,
+            policy_class=None):
         """Build student policy; optionally true-CFG over cond/uncond branches."""
+        if policy_class is None:
+            policy_class = self.policy_class
         student_guidance_scale = self.train_cfg.get('student_guidance_scale', None)
         use_student_cfg = (
             student_guidance_scale is not None
             and float(student_guidance_scale) > 1.0)
         if not use_student_cfg:
             denoising_output = self.pred(x_t_src, t_src, **kwargs)
-            return self.policy_class(
+            return policy_class(
                 denoising_output, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
 
         image_latents = kwargs.get('image_latents')
@@ -277,9 +280,9 @@ class ArcFlowEditImitation(ArcFlowImitation):
         denoising_output = self.pred(x_t_input, t_input, **kwargs)
         out_neg, out_pos = _chunk_output_dict(
             _as_output_dict(denoising_output), num_batches)
-        policy_pos = self.policy_class(
+        policy_pos = policy_class(
             out_pos, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
-        policy_neg = self.policy_class(
+        policy_neg = policy_class(
             out_neg, x_t_src, sigma_t_src, x_ref=x_ref, **policy_kwargs)
         return TrueCFGEditPolicyPair(
             policy_pos,
@@ -306,6 +309,8 @@ class ArcFlowEditImitation(ArcFlowImitation):
             u_t_pred=pred_delta,
             u_t=target_delta,
             timesteps=t_src,
+            # Uniform weight: only consumed if flow_loss data_info maps it.
+            weight=torch.ones_like(pred_delta[:, :1]),
         ))
 
     def _maybe_add_direct_delta_loss(
@@ -337,11 +342,15 @@ class ArcFlowEditImitation(ArcFlowImitation):
         assert ndim in [4, 5], f'Invalid x_0 shape: {x_0.shape}. Expected 4D or 5D tensor.'
 
         num_decay_iters = self.train_cfg.get('num_decay_iters', 0)
+        teacher_ratio_min = self.train_cfg.get('teacher_ratio_min', 0.0)
         if num_decay_iters > 0:
             teacher_ratio = 1 - min(running_status['iteration'], num_decay_iters) / num_decay_iters
-            log_vars = dict(teacher_ratio=teacher_ratio)
         else:
             teacher_ratio = 0.0
+        teacher_ratio = max(teacher_ratio, teacher_ratio_min)
+        if num_decay_iters > 0 or teacher_ratio_min > 0:
+            log_vars = dict(teacher_ratio=teacher_ratio)
+        else:
             log_vars = dict()
 
         raw_t_src, sigma_t_src, t_src, segment_size = self.sample_t(
@@ -373,20 +382,68 @@ class ArcFlowEditImitation(ArcFlowImitation):
             x_t_src, _, _ = self.sample_forward_diffusion(x_0, t_src, path_epsilon)
             policy_kwargs['path_epsilon'] = path_epsilon
 
+        # Scheduled hard-mask switch: before `hard_mask_start_iter` train with
+        # the plain soft alpha policy (alpha head learns its edit-region map);
+        # from that iteration on, use the configured (hard-masked) policy.
+        # With the hard policy's detached binary mask (ste=False) the alpha
+        # head stops receiving gradients, i.e. it is frozen from that point.
+        hard_mask_start_iter = self.train_cfg.get('hard_mask_start_iter', None)
+        use_scheduled_policy = (
+            hard_mask_start_iter is None
+            or running_status['iteration'] >= hard_mask_start_iter)
+        policy_class = self.policy_class if use_scheduled_policy \
+            else ArcFlowEditNewAlphaPolicy
+
         policy = self._build_student_policy(
-            x_t_src, t_src, sigma_t_src, x_ref, policy_kwargs, num_batches, kwargs)
+            x_t_src, t_src, sigma_t_src, x_ref, policy_kwargs, num_batches,
+            kwargs, policy_class=policy_class)
+
+        # Optional per-token distillation loss weighting: upweight edit-region
+        # tokens (hard alpha == 0) by `edit_region_loss_weight`, keep non-edit
+        # (copied) tokens at 1. Requires the flow_loss data_info to map
+        # `weight='weight'`. Global edits (no copy region) keep uniform 1 so
+        # their per-sample loss scale is unchanged.
+        edit_region_w = float(self.train_cfg.get('edit_region_loss_weight', 1.0))
+        loss_weight = None
+        if edit_region_w != 1.0:
+            if getattr(policy, 'alpha_soft', None) is not None:
+                # Hard-mask phase: policy.alpha is a detached binary map.
+                with torch.no_grad():
+                    alpha_hard = policy.alpha.detach()
+                    loss_weight = alpha_hard + (1.0 - alpha_hard) * edit_region_w
+                    has_copy = alpha_hard.flatten(1).amax(dim=1) > 0
+                    loss_weight = torch.where(
+                        has_copy.reshape(-1, *((loss_weight.dim() - 1) * [1])),
+                        loss_weight, torch.ones_like(loss_weight))
+            else:
+                # Soft warmup phase: uniform weight (flow_loss still expects
+                # the `weight` entry when its data_info maps it).
+                loss_weight = torch.ones_like(x_0[:, :1])
 
         loss_diffusion, _, raw_t_dst = self.piid_segment_momentum(
             teacher, policy, x_t_src, raw_t_src, sigma_t_src, teacher_ratio, segment_size,
-            teacher_kwargs)
+            teacher_kwargs, loss_weight=loss_weight)
 
         loss = loss_diffusion
-        loss, log_vars = self._maybe_add_direct_delta_loss(
-            loss, log_vars, x_0, policy, t_src, sigma_t_src)
+        if use_scheduled_policy:
+            # Direct-delta anchoring only makes sense for the active
+            # (post-switch) decomposition; skipped during soft warmup.
+            loss, log_vars = self._maybe_add_direct_delta_loss(
+                loss, log_vars, x_0, policy, t_src, sigma_t_src)
         log_vars.update(self.flow_loss.log_vars)
         log_vars.update(loss_diffusion=float(loss_diffusion.detach()))
         if isinstance(policy, TrueCFGEditPolicyPair):
             log_vars['student_guidance_scale'] = float(policy.guidance_scale)
+        alpha_soft = getattr(policy, 'alpha_soft', None)
+        if alpha_soft is not None:
+            # Hard-gated alpha: track soft-map level and ref-copy fraction.
+            with torch.no_grad():
+                log_vars['alpha_soft_mean'] = float(alpha_soft.mean())
+                log_vars['alpha_copy_ratio'] = float(policy.alpha.mean())
+        elif hard_mask_start_iter is not None and hasattr(policy, 'alpha'):
+            # Soft warmup phase of a scheduled hard-mask run.
+            with torch.no_grad():
+                log_vars['alpha_soft_mean'] = float(policy.alpha.mean())
 
         return loss, log_vars
 

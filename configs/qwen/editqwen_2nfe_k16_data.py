@@ -7,7 +7,7 @@ _base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 #   x0 = edited target; source conditioning via image_latents only (no use_uedit).
 # `train_qwen_data.sh` overrides name/work_dir/resume from NFE.
 name = 'gmqwen_k16_2nfe_pico400k_data'
-qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_model = '/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511'
 qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
@@ -19,6 +19,7 @@ model = dict(
         freeze=True,
         use_slicing=True,
         torch_dtype='bfloat16'),
+    text_encoder=dict(from_pretrained=qwen_model),
     diffusion=dict(
         type='ArcFlowImitation',
         policy_type='ArcFlow',
@@ -129,9 +130,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-            'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+            '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+            'evaluation/imgedit_bench/annotations/basic_edit.json'),
+        bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],

@@ -9,9 +9,9 @@ _base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 # Distillation is split-stage so the 2-NFE unroll is shared with GAN (no extra
 # independent rollout for the fake endpoint).
 name = 'gmqwen_uedit_fixedeps_alpha_k16_2nfe_pico400k_split_stage_alph_dino_gan'
-qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_model = '/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511'
 qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
-dinov3_model = '/mnt/afs_zhangyunzhe/pretrained_models/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
+dinov3_model = '/mnt/afs_gaochengmin/checkpoints/dinov3/dinov3-vitl16-pretrain-lvd1689m/model.safetensors'
 
 model = dict(
     type='LatentDiffusionQwenImageEditAlphaSplitStageDinoGAN',
@@ -204,20 +204,38 @@ fsdp_kwargs = dict(
 )
 
 sample_eval = dict(
+    _delete_=True,
     type='EditFlowSampleImagesHook',
     enabled=True,
     dataset=dict(
-        type='ImgEditBenchSample',
-        annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-            'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
-        categories=[
-            'action', 'add', 'adjust', 'background', 'compose',
-            'extract', 'remove', 'replace', 'style'],
-        samples_per_category=5,
-        seed=42,
-        resize_mode='qwen',
+        type='ConcatEditValSample',
+        datasets=[
+            dict(
+                type='ImgEditBenchSample',
+                split='imgedit',
+                annotations_path=(
+                    '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+                    'evaluation/imgedit_bench/annotations/basic_edit.json'),
+                bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
+                categories=[
+                    'action', 'add', 'adjust', 'background', 'compose',
+                    'extract', 'remove', 'replace', 'style'],
+                samples_per_category=5,
+                seed=42,
+                resize_mode='qwen',
+            ),
+            dict(
+                type='GEditV2Sample',
+                split='gedit_v2',
+                annotations_path=(
+                    '/mnt/afs_caiqi/data/benchmark/GEdit_v2/gedit_v2_meta.json'),
+                bench_root='/mnt/afs_caiqi/data/benchmark/GEdit_v2',
+                samples_per_category=3,
+                language=None,
+                seed=42,
+                resize_mode='qwen',
+            ),
+        ],
     ),
     interval=save_interval,
     must_save_interval=must_save_interval,

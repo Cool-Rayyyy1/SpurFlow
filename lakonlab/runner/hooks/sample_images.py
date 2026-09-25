@@ -177,11 +177,19 @@ def _batch_item(value, index):
 
 
 def _sample_folder_name(data, index, fallback_idx):
-    """Prefer category/example_name layout when present on the batch."""
+    """Prefer split/category/example_name layout when present on the batch."""
+    split = _batch_item(data.get('split'), index)
     category = _batch_item(data.get('category'), index)
     example_name = _batch_item(data.get('example_name'), index)
+    parts = []
+    if split is not None and str(split):
+        parts.append(str(split))
     if category is not None and example_name is not None:
-        return osp.join(str(category), str(example_name))
+        parts.extend([str(category), str(example_name)])
+        return osp.join(*parts)
+    if parts:
+        parts.append(f'{fallback_idx:03d}')
+        return osp.join(*parts)
     return f'{fallback_idx:03d}'
 
 
@@ -228,23 +236,21 @@ class EditFlowSampleImagesHook(Hook):
         rank, world_size = get_dist_info()
         if world_size > 1:
             dist.barrier()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         self._sample_and_save(runner, rank)
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         if world_size > 1:
             dist.barrier()
 
     def _sample_and_save(self, runner, rank):
         iter_tag = runner.iter + 1
         out_dir = osp.join(runner.work_dir, self.output_dir, f'iter_{iter_tag}')
+        _, world_size = get_dist_info()
         if rank == 0:
             mmcv.mkdir_or_exist(out_dir)
+        if world_size > 1:
+            dist.barrier()
 
-        # The sample dataloader must expose the FULL dataset on every rank
-        # (dist=False). A sharding sampler (e.g. DistributedSampler on 8/16
-        # ranks) would leave rank0 with only a couple of categories.
+        # Full dataset on every rank (dist=False) so FSDP val_step stays aligned.
+        # Each rank writes a disjoint shard of folders to avoid AFS EEXIST.
         dataset_len = len(self.dataloader.dataset)
         sampler = getattr(self.dataloader, 'sampler', None)
         sampler_len = len(sampler) if sampler is not None else dataset_len
@@ -257,6 +263,7 @@ class EditFlowSampleImagesHook(Hook):
 
         runner.model.eval()
         saved = 0
+        rank_saved = 0
         saved_categories = set()
         if self.max_samples is None or int(self.max_samples) <= 0:
             max_steps = len(self.dataloader)
@@ -272,64 +279,71 @@ class EditFlowSampleImagesHook(Hook):
 
                 # FSDP forward requires every rank to enter val_step together.
                 outputs = runner.model.val_step(data_batch)
-                if rank == 0:
-                    pred_imgs = outputs['pred_imgs'].detach().float().cpu().clamp(0, 1)
+                pred_imgs = outputs['pred_imgs'].detach().float().cpu().clamp(0, 1)
 
-                    data = _unwrap_dc(data_batch)
-                    batch_size = pred_imgs.size(0)
-                    batch_names = data.get(
-                        'name', [f'sample_{saved + i}' for i in range(batch_size)])
-                    if not isinstance(batch_names, list):
-                        batch_names = [batch_names] * batch_size
+                data = _unwrap_dc(data_batch)
+                batch_size = pred_imgs.size(0)
+                batch_names = data.get(
+                    'name', [f'sample_{saved + i}' for i in range(batch_size)])
+                if not isinstance(batch_names, list):
+                    batch_names = [batch_names] * batch_size
 
-                    source_imgs = data.get('source_images')
-                    target_imgs = data.get('edited_images')
+                source_imgs = data.get('source_images')
+                target_imgs = data.get('edited_images')
 
-                    for i in range(batch_size):
-                        if saved >= max_samples:
-                            break
+                for i in range(batch_size):
+                    if saved >= max_samples:
+                        break
 
-                        category = _batch_item(data.get('category'), i)
-                        if category is not None:
-                            saved_categories.add(str(category))
-                        sample_dir = osp.join(
-                            out_dir, _sample_folder_name(data, i, saved))
-                        mmcv.mkdir_or_exist(sample_dir)
+                    global_idx = saved
+                    saved += 1
+                    if world_size > 1 and (global_idx % world_size) != rank:
+                        continue
 
-                        prompt = str(
-                            batch_names[i] if i < len(batch_names) else f'sample_{saved}')
-                        with open(osp.join(sample_dir, 'prompt.txt'), 'w', encoding='utf-8') as f:
-                            f.write(prompt)
+                    category = _batch_item(data.get('category'), i)
+                    split = _batch_item(data.get('split'), i)
+                    if category is not None:
+                        tag = str(category)
+                        if split:
+                            tag = f'{split}/{tag}'
+                        saved_categories.add(tag)
+                    sample_dir = osp.join(
+                        out_dir, _sample_folder_name(data, i, global_idx))
+                    mmcv.mkdir_or_exist(sample_dir)
 
-                        src = _batch_item(source_imgs, i)
-                        if src is not None:
-                            save_image(
-                                src.detach().float().cpu().clamp(0, 1),
-                                osp.join(sample_dir, 'src.png'))
+                    prompt = str(
+                        batch_names[i] if i < len(batch_names) else f'sample_{global_idx}')
+                    with open(osp.join(sample_dir, 'prompt.txt'), 'w', encoding='utf-8') as f:
+                        f.write(prompt)
 
-                        save_image(pred_imgs[i], osp.join(sample_dir, 'pred.png'))
+                    src = _batch_item(source_imgs, i)
+                    if src is not None:
+                        save_image(
+                            src.detach().float().cpu().clamp(0, 1),
+                            osp.join(sample_dir, 'src.png'))
 
-                        target = _batch_item(target_imgs, i)
-                        if target is not None:
-                            save_image(
-                                target.detach().float().cpu().clamp(0, 1),
-                                osp.join(sample_dir, 'target.png'))
+                    save_image(pred_imgs[i], osp.join(sample_dir, 'pred.png'))
 
-                        saved += 1
+                    target = _batch_item(target_imgs, i)
+                    if target is not None:
+                        save_image(
+                            target.detach().float().cpu().clamp(0, 1),
+                            osp.join(sample_dir, 'target.png'))
 
-                    del pred_imgs, outputs
-                else:
-                    del outputs
+                    rank_saved += 1
 
-                # Qwen VAE decode is peaky; free fragmentation between samples.
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                del pred_imgs, outputs
 
+        if world_size > 1:
+            dist.barrier()
         if rank == 0:
             cat_info = (
                 f' across {len(saved_categories)} categories '
                 f'({", ".join(sorted(saved_categories))})'
                 if saved_categories else '')
+            shard_info = (
+                f', sharded across {world_size} ranks'
+                if world_size > 1 else '')
             runner.logger.info(
-                f'Saved {saved} edit sample folder(s){cat_info} to {out_dir}')
+                f'Saved {saved} edit sample folder(s){cat_info}{shard_info} to {out_dir}')
         runner.model.train()

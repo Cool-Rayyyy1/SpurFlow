@@ -31,6 +31,10 @@ checkpoints/
 dataset/
 data/
 
+# api credentials
+*.env
+!*.env.example
+
 # logs
 wandb/
 logs/

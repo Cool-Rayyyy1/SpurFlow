@@ -10,12 +10,13 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 EDITFLOW_ROOT = Path(__file__).resolve().parents[2]
@@ -26,14 +27,14 @@ if str(EDITFLOW_ROOT) not in sys.path:
 DEFAULT_BENCH_ROOT = Path(
     os.environ.get(
         "IMGEDIT_BENCH_ROOT",
-        "/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark",
+        "/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark",
     )
 )
 DEFAULT_KONTEXT_MODEL = os.environ.get(
-    "KONTEXT_MODEL_PATH", "/mnt/afs_zhangyunzhe/pretrained_models/FLUX.1-Kontext-dev"
+    "KONTEXT_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev"
 )
 DEFAULT_KLEIN_MODEL = os.environ.get(
-    "KLEIN_MODEL_PATH", "/mnt/afs_zhangyunzhe/pretrained_models/FLUX.2-klein-9B"
+    "KLEIN_MODEL_PATH", "/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B"
 )
 DEFAULT_OUTPUT_ROOT = EVAL_ROOT / "outputs"
 
@@ -215,6 +216,33 @@ def multiturn_prompts(item: Dict) -> List[str]:
     return [item[k] for k in sorted(item) if re.fullmatch(r"turn\d+", k)]
 
 
+def try_open_rgb_image(path: Path) -> Optional[Image.Image]:
+    """Open an RGB image, or return None if missing/truncated/unreadable."""
+    if not path.is_file() or path.stat().st_size <= 32:
+        return None
+    try:
+        with Image.open(path) as im:
+            im.load()
+            return im.convert("RGB")
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError):
+        return None
+
+
+def save_png_atomic(image: Image.Image, path: Path) -> None:
+    """Write via temp + replace so a crash cannot leave a truncated PNG."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=path.suffix or ".png", dir=str(path.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        image.save(tmp_path)
+        os.replace(tmp_path, path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
+
+
 def expected_outputs(task_key: str, item: Dict) -> List[Path]:
     suite_name, sample_key = task_key.split(":", 1)
     if suite_name == "multiturn":
@@ -280,11 +308,9 @@ def resolve_inference_settings(args: argparse.Namespace) -> Tuple[int, float]:
 
 
 def build_teacher_pipeline(model_path: str, device: str, cpu_offload: bool):
-    from diffusers import FluxKontextPipeline, FlowMatchEulerDiscreteScheduler
+    from diffusers import FluxKontextPipeline
 
     pipe = FluxKontextPipeline.from_pretrained(model_path, torch_dtype=torch.bfloat16)
-    pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
-        pipe.scheduler.config, shift=3.2, shift_terminal=None, use_dynamic_shifting=False)
     if cpu_offload:
         pipe.enable_model_cpu_offload()
     else:
@@ -309,6 +335,60 @@ def build_klein_pipeline(model_path: str, device: str, cpu_offload: bool):
     return pipe
 
 
+def _parse_qwen_lora_specs() -> List[Tuple[Path, str]]:
+    """LoRA files from QWEN_LORA_PATHS (comma-separated) or QWEN_LORA_PATH."""
+    raw = os.environ.get("QWEN_LORA_PATHS", "").strip() or os.environ.get("QWEN_LORA_PATH", "").strip()
+    if not raw:
+        return []
+    paths = [Path(item.strip()) for item in raw.split(",") if item.strip()]
+    names_raw = os.environ.get("QWEN_LORA_ADAPTER_NAMES", "").strip()
+    if names_raw:
+        names = [item.strip() for item in names_raw.split(",") if item.strip()]
+        if len(names) != len(paths):
+            raise ValueError(
+                f"QWEN_LORA_ADAPTER_NAMES has {len(names)} names but {len(paths)} LoRA paths."
+            )
+    elif len(paths) == 2:
+        names = ["style", "dmd"]
+    elif len(paths) == 1:
+        names = ["default"]
+    else:
+        names = [f"lora{i}" for i in range(len(paths))]
+    return list(zip(paths, names))
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in {"1", "true", "yes", "y"}:
+        return True
+    if raw in {"0", "false", "no", "n"}:
+        return False
+    return default
+
+
+def qwen_lightning_scheduler():
+    """Official LightX2V / Qwen-Image-Lightning scheduler (shift=3, 4-step)."""
+    import math
+    from diffusers import FlowMatchEulerDiscreteScheduler
+
+    return FlowMatchEulerDiscreteScheduler.from_config({
+        "base_image_seq_len": 256,
+        "base_shift": math.log(3),
+        "invert_sigmas": False,
+        "max_image_seq_len": 8192,
+        "max_shift": math.log(3),
+        "num_train_timesteps": 1000,
+        "shift": 1.0,
+        "shift_terminal": None,
+        "stochastic_sampling": False,
+        "time_shift_type": "exponential",
+        "use_beta_sigmas": False,
+        "use_dynamic_shifting": True,
+        "use_exponential_sigmas": False,
+        "use_karras_sigmas": False,
+    })
+
+
 def build_qwen_pipeline(model_path: str, device: str, cpu_offload: bool):
     try:
         from diffusers import QwenImageEditPlusPipeline
@@ -318,33 +398,64 @@ def build_qwen_pipeline(model_path: str, device: str, cpu_offload: bool):
             "Install the latest diffusers from GitHub."
         ) from exc
 
-    pipe = QwenImageEditPlusPipeline.from_pretrained(
-        model_path, torch_dtype=torch.bfloat16)
+    lora_specs = _parse_qwen_lora_specs()
+    use_lightning_sched = _env_flag(
+        "QWEN_LIGHTNING_SCHEDULER",
+        default=(len(lora_specs) == 1),
+    )
+    kwargs = {"torch_dtype": torch.bfloat16}
+    if lora_specs and use_lightning_sched:
+        kwargs["scheduler"] = qwen_lightning_scheduler()
+        print("[qwen] scheduler: FlowMatchEulerDiscreteScheduler exponential shift=3", flush=True)
+    pipe = QwenImageEditPlusPipeline.from_pretrained(model_path, **kwargs)
+    adapter_names = []
+    for lora_file, adapter_name in lora_specs:
+        if not lora_file.exists():
+            raise FileNotFoundError(f"Qwen LoRA not found: {lora_file}")
+        load_kwargs = {}
+        if adapter_name != "default":
+            load_kwargs["adapter_name"] = adapter_name
+        if lora_file.is_file():
+            pipe.load_lora_weights(str(lora_file.parent), weight_name=lora_file.name, **load_kwargs)
+        else:
+            pipe.load_lora_weights(str(lora_file), **load_kwargs)
+        adapter_names.append(adapter_name)
+        print(f"[qwen] LoRA ({adapter_name}): {lora_file}", flush=True)
+    if len(adapter_names) > 1:
+        pipe.set_adapters(adapter_names, adapter_weights=[1.0] * len(adapter_names))
+        print(f"[qwen] adapters={adapter_names} weights=1.0", flush=True)
+    if lora_specs and _env_flag("QWEN_FUSE_LORA", default=False):
+        fuse_names = None if adapter_names == ["default"] else adapter_names
+        pipe.fuse_lora(adapter_names=fuse_names, lora_scale=1.0)
+        pipe.unload_lora_weights()
+        print("[qwen] fused LoRAs at scale=1.0", flush=True)
     if cpu_offload:
         pipe.enable_model_cpu_offload()
     else:
         pipe = pipe.to(device)
-    pipe.set_progress_bar_config(disable=None)
+    pipe.set_progress_bar_config(disable=True)
     return pipe
 
 
 def build_student_model(config_path: Path, ckpt_path: Path, device: str):
     from lakonlab.apis.inference import init_model
 
-    return init_model(
+    model = init_model(
         str(config_path),
         str(ckpt_path),
         device=device,
         use_bf16=True,
         cfg_options={"model.inference_only": True},
     )
+    install_mixture_stats_hook(model)
+    return model
 
 
 VAE_SCALE_FACTOR = 8
 STUDENT_PATCH_SIZE = 2
 STUDENT_SPATIAL_MULTIPLE = VAE_SCALE_FACTOR * STUDENT_PATCH_SIZE
-# Match training ImageEdit preprocessing. kontext: pick FLUX Kontext bucket from source
-# aspect ratio and bicubic resize (no crop). center_crop: 1024 square center crop.
+# Match training ImageEdit preprocessing. kontext: pick FLUX Kontext bucket;
+# qwen: VAE-area resize; flux2: ~1MP area cap aligned to 16 px; center_crop: 1024 square.
 STUDENT_IMAGE_SIZE = int(os.environ.get("STUDENT_IMAGE_SIZE", "1024"))
 STUDENT_RESIZE_MODE = os.environ.get("STUDENT_RESIZE_MODE", "center_crop").strip().lower()
 
@@ -365,18 +476,28 @@ def snap_image_for_student(image: Image.Image, size: int = STUDENT_IMAGE_SIZE) -
 
 def preprocess_image_for_student(image: Image.Image) -> Image.Image:
     """Align benchmark input with training ImageEdit preprocessing."""
-    if STUDENT_RESIZE_MODE == "kontext":
-        from lakonlab.datasets.image_edit import _pick_kontext_resolution, _resize_to
+    if STUDENT_RESIZE_MODE in {"kontext", "flux2", "qwen"}:
+        from lakonlab.datasets.image_edit import (
+            _pick_flux2_resolution,
+            _pick_kontext_resolution,
+            _pick_qwen_vae_resolution,
+            _resize_to,
+        )
 
         width, height = image.size
-        bucket_w, bucket_h = _pick_kontext_resolution(width, height)
+        if STUDENT_RESIZE_MODE == "kontext":
+            bucket_w, bucket_h = _pick_kontext_resolution(width, height)
+        elif STUDENT_RESIZE_MODE == "flux2":
+            bucket_w, bucket_h = _pick_flux2_resolution(width, height)
+        else:
+            bucket_w, bucket_h = _pick_qwen_vae_resolution(width, height)
         arr = np.array(image.convert("RGB"), dtype=np.uint8)
         arr = _resize_to(arr, bucket_w, bucket_h)
         return Image.fromarray(arr)
     if STUDENT_RESIZE_MODE != "center_crop":
         raise ValueError(
             f"Unsupported STUDENT_RESIZE_MODE={STUDENT_RESIZE_MODE!r}; "
-            "expected 'kontext' or 'center_crop'.")
+            "expected 'kontext', 'qwen', 'flux2', or 'center_crop'.")
     return snap_image_for_student(image)
 
 
@@ -448,15 +569,15 @@ def run_one_qwen(
     guidance_scale: float,
     seed: int,
 ) -> Image.Image:
+    device = getattr(pipe, "_execution_device", "cuda")
     out = pipe(
-        image=[image],
+        image=[image.convert("RGB")],
         prompt=prompt,
-        generator=torch.manual_seed(seed),
+        generator=torch.Generator(device=device).manual_seed(seed),
         true_cfg_scale=QWEN_TRUE_CFG_SCALE,
+        guidance_scale=guidance_scale,
         negative_prompt=QWEN_NEGATIVE_PROMPT,
         num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale,
-        num_images_per_prompt=1,
     )
     return out.images[0]
 
@@ -485,7 +606,73 @@ def get_student_mixture_stats(model) -> Optional[List[Dict]]:
     return list(stats)
 
 
+def _mixture_stats_from_logweights(logweights: torch.Tensor) -> Dict:
+    """Per-step stats for one sample: logweights (bs, K, ...) with K at dim=1."""
+    lw = logweights.detach().float()[-1:]  # last batch element = positive half under CFG
+    weights = torch.softmax(lw, dim=1)
+    k = weights.size(1)
+    reduce_dims = [d for d in range(weights.dim()) if d != 1]
+    mean_weights = weights.mean(dim=reduce_dims).flatten()
+    argmax = weights.argmax(dim=1).flatten()
+    mode_counts = torch.bincount(argmax, minlength=k)
+    entropy = -(mean_weights * mean_weights.clamp_min(1e-12).log()).sum()
+    return {
+        "num_gaussians": int(k),
+        "mean_weights": [float(v) for v in mean_weights],
+        "mode_counts": [int(v) for v in mode_counts],
+        "mode_frac": [float(v) / max(int(argmax.numel()), 1) for v in mode_counts],
+        "dominant_k": int(mode_counts.argmax()),
+        "mean_weight_entropy": float(entropy),
+    }
+
+
+def install_mixture_stats_hook(model) -> None:
+    """Wrap diffusion.pred so each NFE step appends pi stats to _last_mixture_stats.
+
+    lakonlab never populates _last_mixture_stats itself; this instance-level hook
+    fills it without modifying lakonlab code. Recording only happens while
+    run_one_student has set _dump_mixture_stats, so the hook is free otherwise.
+    """
+    diffusion = get_student_diffusion(model)
+    if diffusion is None or getattr(diffusion, "_mixture_stats_hooked", False):
+        return
+    orig_pred = diffusion.pred
+
+    def pred_with_stats(x_t=None, t=None, **kwargs):
+        out = orig_pred(x_t=x_t, t=t, **kwargs)
+        if (
+            getattr(diffusion, "_dump_mixture_stats", False)
+            and isinstance(out, dict)
+            and isinstance(out.get("logweights"), torch.Tensor)
+        ):
+            steps = getattr(diffusion, "_last_mixture_stats", None) or []
+            stats = _mixture_stats_from_logweights(out["logweights"])
+            stats["step"] = len(steps)
+            steps.append(stats)
+            object.__setattr__(diffusion, "_last_mixture_stats", steps)
+        return out
+
+    object.__setattr__(diffusion, "pred", pred_with_stats)
+    object.__setattr__(diffusion, "_mixture_stats_hooked", True)
+
+
 @torch.inference_mode()
+def add_qwen_condition_source_images(data, orig_image: Image.Image, device: str) -> None:
+    """Match training: VL encoder sees 384-area condition, VAE sees 1024-area source."""
+    if STUDENT_RESIZE_MODE != "qwen":
+        return
+    from lakonlab.datasets.image_edit import (
+        _pick_qwen_condition_resolution,
+        _resize_to,
+    )
+
+    orig = orig_image.convert("RGB")
+    orig_w, orig_h = orig.size
+    cond_w, cond_h = _pick_qwen_condition_resolution(orig_w, orig_h)
+    cond_arr = _resize_to(np.array(orig, dtype=np.uint8), cond_w, cond_h)
+    data["condition_source_images"] = pil_to_tensor(Image.fromarray(cond_arr)).to(device)
+
+
 def run_one_student(
     model,
     image: Image.Image,
@@ -497,7 +684,8 @@ def run_one_student(
     mixture_reduce: str = "mean",
     dump_mixture_stats: bool = False,
 ) -> Image.Image:
-    image = preprocess_image_for_student(image)
+    orig = image.convert("RGB")
+    image = preprocess_image_for_student(orig)
     source = pil_to_tensor(image).to(device)
     gen = torch.Generator(device=device).manual_seed(seed)
     if hasattr(model.vae, "dtype"):
@@ -513,6 +701,7 @@ def run_one_student(
         "source_images": source,
         "noise": noise,
     }
+    add_qwen_condition_source_images(data, orig, device)
     test_cfg_override = {
         "nfe": num_inference_steps,
         "distilled_guidance_scale": guidance_scale,
@@ -620,9 +809,16 @@ def run_multiturn_chain(
     current = source
     for turn_idx, (prompt, out_path) in enumerate(zip(prompts, out_paths), start=1):
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        if skip_existing and out_path.is_file():
-            current = Image.open(out_path).convert("RGB")
-            continue
+        if skip_existing:
+            existing = try_open_rgb_image(out_path)
+            if existing is not None:
+                current = existing
+                continue
+            if out_path.is_file():
+                print(
+                    f"[warn] unreadable existing turn, regenerating: {out_path}",
+                    flush=True)
+                out_path.unlink()
         current = run_one(
             runner,
             role,
@@ -635,7 +831,7 @@ def run_multiturn_chain(
             mixture_reduce=mixture_reduce,
             dump_mixture_stats=dump_mixture_stats,
         )
-        current.save(out_path)
+        save_png_atomic(current, out_path)
 
 
 def resolve_gpu_ids(num_gpus: int) -> List[int]:
@@ -687,7 +883,7 @@ def process_tasks(
             else None
         )
         stats_path = output_dir / "mixture_stats" / f"{sample_key}.txt"
-        score_ready = all(p.is_file() for p in abs_paths)
+        score_ready = all(try_open_rgb_image(p) is not None for p in abs_paths)
         case_ready = case_dir is None or case_bundle_ready(case_dir)
         stats_ready = (not dump_mixture_stats) or stats_path.is_file()
         if skip_existing and score_ready and case_ready and stats_ready:
@@ -705,7 +901,16 @@ def process_tasks(
                 if sample_key.split(":")[-1].isdigit()
                 else seed
             )
-        image = Image.open(src_path).convert("RGB")
+        image = try_open_rgb_image(src_path)
+        if image is None:
+            print(f"[skip] unreadable source: {src_path}", flush=True)
+            manifest[task_key] = {
+                "suite": suite_name,
+                "key": sample_key,
+                "source": str(src_path),
+                "error": f"unreadable source: {src_path}",
+            }
+            continue
 
         ran_model = False
         if suite_name == "multiturn":
@@ -1035,6 +1240,9 @@ def main() -> None:
         "guidance_scale": guidance_scale,
         "true_cfg_scale": QWEN_TRUE_CFG_SCALE if args.role == "qwen" else None,
         "negative_prompt": QWEN_NEGATIVE_PROMPT if args.role == "qwen" else None,
+        "lora_path": os.environ.get("QWEN_LORA_PATH", "").strip() or None,
+        "lora_paths": os.environ.get("QWEN_LORA_PATHS", "").strip() or None,
+        "fuse_lora": _env_flag("QWEN_FUSE_LORA", default=False),
         "suite": args.suite,
         "num_tasks": len(manifest),
         "num_gpus": len(gpu_ids),

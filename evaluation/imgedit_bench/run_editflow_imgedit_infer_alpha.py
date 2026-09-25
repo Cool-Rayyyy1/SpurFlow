@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 EVAL_ROOT = Path(__file__).resolve().parent
@@ -55,12 +55,15 @@ from run_editflow_imgedit_infer import (  # noqa: E402
     resolve_source_path,
     run_multiturn_chain,
     run_one,
+    run_one_student,
     split_tasks_round_robin,
     tensor_to_pil,
+    try_open_rgb_image,
 )
 
 HEATMAP_BLEND = float(os.environ.get("HEATMAP_BLEND", "0.36"))
 OVERLAY_BLEND = float(os.environ.get("OVERLAY_BLEND", "0.52"))
+SKIP_ALPHA_VIS = os.environ.get("SKIP_ALPHA_VIS", "0").strip() not in {"", "0", "false", "False"}
 
 BASIC_CATEGORY_DIRS = (
     "Action",
@@ -98,6 +101,16 @@ def v6_case_ready(case_dir: Path) -> bool:
         paths["step2_alpha"], paths["step2_heatmap"], paths["step2_overlay"],
     ]
     return all(p.is_file() for p in required)
+
+
+def photo_case_ready(case_dir: Path) -> bool:
+    return (case_dir / "pred.png").is_file()
+
+
+def case_skip_ready(case_dir: Path) -> bool:
+    if SKIP_ALPHA_VIS:
+        return photo_case_ready(case_dir)
+    return v6_case_ready(case_dir)
 
 
 def write_v6_case_bundle(
@@ -144,8 +157,23 @@ def write_v6_case_bundle(
     return {k: str(v) for k, v in paths.items()}
 
 
+def write_photo_case_bundle(
+    case_dir: Path,
+    src_pil: Image.Image,
+    edit_pil: Image.Image,
+    prompt: str,
+) -> Dict[str, str]:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    paths = v6_case_paths(case_dir)
+    paths["prompt"].write_text((prompt or "").rstrip() + "\n", encoding="utf-8")
+    src_pil.save(paths["src"])
+    edit_pil.save(paths["edit"])
+    edit_pil.save(paths["pred"])
+    return {k: str(paths[k]) for k in ("prompt", "src", "edit", "pred")}
+
+
 def basic_suite_complete(output_dir: Path, tasks: List[Tuple[str, Dict]]) -> Tuple[bool, Dict[str, int]]:
-    """Completion check: basic uses category v6 packs; uge/multiturn use flat paths."""
+    """Completion check: basic uses category packs; uge/multiturn use flat paths."""
     expected = 0
     found = 0
     for task_key, item in tasks:
@@ -153,7 +181,7 @@ def basic_suite_complete(output_dir: Path, tasks: List[Tuple[str, Dict]]) -> Tup
         if suite_name == "basic":
             expected += 1
             case_dir = basic_case_dir(output_dir, item, sample_key)
-            if v6_case_ready(case_dir):
+            if case_skip_ready(case_dir):
                 found += 1
             continue
         rel_paths = expected_outputs(task_key, item)
@@ -219,12 +247,12 @@ def process_tasks(
             if suite_name == "basic" else None)
 
         if suite_name == "basic" and role == "student":
-            if skip_existing and case_dir is not None and v6_case_ready(case_dir):
+            if skip_existing and case_dir is not None and case_skip_ready(case_dir):
                 continue
         else:
-            score_ready = all(p.is_file() for p in abs_paths)
+            score_ready = all(try_open_rgb_image(p) is not None for p in abs_paths)
             if skip_existing and score_ready:
-                if case_dir is None or v6_case_ready(case_dir) or role != "student":
+                if case_dir is None or case_skip_ready(case_dir) or role != "student":
                     # non-basic: flat only; basic non-student shouldn't happen
                     if suite_name != "basic" or role != "student":
                         continue
@@ -234,75 +262,125 @@ def process_tasks(
             raise FileNotFoundError(f"Missing source image: {src_path}")
 
         task_seed = seed + int(sample_key.split(":")[-1]) if sample_key.split(":")[-1].isdigit() else seed
-        image = Image.open(src_path).convert("RGB")
+        image = try_open_rgb_image(src_path)
+        if image is None:
+            print(f"[skip] unreadable source: {src_path}", flush=True)
+            manifest[task_key] = {
+                "suite": suite_name,
+                "key": sample_key,
+                "source": str(src_path),
+                "error": f"unreadable source: {src_path}",
+            }
+            continue
 
-        if suite_name == "multiturn":
-            run_multiturn_chain(
-                runner,
-                role,
-                source=image,
-                prompts=multiturn_prompts(item),
-                out_paths=abs_paths,
-                num_inference_steps=num_steps,
-                guidance_scale=guidance_scale,
-                seed=task_seed,
-                skip_existing=skip_existing,
-                device=device,
-            )
-            alpha_outputs = []
-        elif suite_name == "basic" and role == "student":
-            assert case_dir is not None
-            src_pil, edit_pil, alphas = run_one_student_alpha_v6(
-                runner,
-                image=image,
-                prompt=item["prompt"],
-                num_inference_steps=num_steps,
-                guidance_scale=guidance_scale,
-                seed=task_seed,
-                device=device,
-            )
-            alpha_outputs = write_v6_case_bundle(
-                case_dir,
-                src_pil,
-                edit_pil,
-                item.get("prompt", ""),
-                alphas,
-                num_steps,
-                heatmap_blend=heatmap_blend,
-                overlay_blend=overlay_blend,
-            )
-            # No flat basic/{key}.png — scoring reads Category/key/pred.png
-        else:
-            # UGE student / teacher / etc.: flat score png only
-            abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
-            if role == "student":
-                src_pil, edit_pil, alphas = run_one_student_alpha_v6(
-                    runner,
-                    image=image,
-                    prompt=item["prompt"],
-                    num_inference_steps=num_steps,
-                    guidance_scale=guidance_scale,
-                    seed=task_seed,
-                    device=device,
-                )
-                edit_pil.save(abs_paths[0])
-                alpha_outputs = {
-                    f"step{i}_alpha_tensor_shape": list(a.shape)
-                    for i, a in enumerate(alphas[:2], start=1)
-                }
-            else:
-                result = run_one(
+        try:
+            if suite_name == "multiturn":
+                run_multiturn_chain(
                     runner,
                     role,
-                    image=image,
-                    prompt=item["prompt"],
+                    source=image,
+                    prompts=multiturn_prompts(item),
+                    out_paths=abs_paths,
                     num_inference_steps=num_steps,
                     guidance_scale=guidance_scale,
                     seed=task_seed,
+                    skip_existing=skip_existing,
                     device=device,
                 )
-                result.save(abs_paths[0])
                 alpha_outputs = []
+            elif suite_name == "basic" and role == "student":
+                assert case_dir is not None
+                if SKIP_ALPHA_VIS:
+                    src_pil = preprocess_image_for_student(image)
+                    edit_pil = run_one_student(
+                        runner,
+                        image,
+                        item["prompt"],
+                        num_steps,
+                        guidance_scale,
+                        task_seed,
+                        device,
+                    )
+                    alpha_outputs = write_photo_case_bundle(
+                        case_dir,
+                        src_pil,
+                        edit_pil,
+                        item.get("prompt", ""),
+                    )
+                else:
+                    src_pil, edit_pil, alphas = run_one_student_alpha_v6(
+                        runner,
+                        image=image,
+                        prompt=item["prompt"],
+                        num_inference_steps=num_steps,
+                        guidance_scale=guidance_scale,
+                        seed=task_seed,
+                        device=device,
+                    )
+                    alpha_outputs = write_v6_case_bundle(
+                        case_dir,
+                        src_pil,
+                        edit_pil,
+                        item.get("prompt", ""),
+                        alphas,
+                        num_steps,
+                        heatmap_blend=heatmap_blend,
+                        overlay_blend=overlay_blend,
+                    )
+                # No flat basic/{key}.png — scoring reads Category/key/pred.png
+            else:
+                # UGE student / teacher / etc.: flat score png only
+                abs_paths[0].parent.mkdir(parents=True, exist_ok=True)
+                if role == "student":
+                    if SKIP_ALPHA_VIS:
+                        edit_pil = run_one_student(
+                            runner,
+                            image,
+                            item["prompt"],
+                            num_steps,
+                            guidance_scale,
+                            task_seed,
+                            device,
+                        )
+                        edit_pil.save(abs_paths[0])
+                        alpha_outputs = {"skip_alpha_vis": True}
+                    else:
+                        src_pil, edit_pil, alphas = run_one_student_alpha_v6(
+                            runner,
+                            image=image,
+                            prompt=item["prompt"],
+                            num_inference_steps=num_steps,
+                            guidance_scale=guidance_scale,
+                            seed=task_seed,
+                            device=device,
+                        )
+                        edit_pil.save(abs_paths[0])
+                        alpha_outputs = {
+                            f"step{i}_alpha_tensor_shape": list(a.shape)
+                            for i, a in enumerate(alphas[:2], start=1)
+                        }
+                else:
+                    result = run_one(
+                        runner,
+                        role,
+                        image=image,
+                        prompt=item["prompt"],
+                        num_inference_steps=num_steps,
+                        guidance_scale=guidance_scale,
+                        seed=task_seed,
+                        device=device,
+                    )
+                    result.save(abs_paths[0])
+                    alpha_outputs = []
+        except (UnidentifiedImageError, OSError) as e:
+            print(f"[skip] {task_key}: {e}", flush=True)
+            manifest[task_key] = {
+                "suite": suite_name,
+                "key": sample_key,
+                "source": str(src_path),
+                "error": str(e),
+            }
+            continue
 
         manifest[task_key] = {
             "suite": suite_name,

@@ -3,18 +3,18 @@
 # Does NOT touch the EditFlow `arcflow` conda env used by existing train_*.sh.
 #
 # First-time install:
-#   bash /mnt/afs_zhangyunzhe/EditFlow/setup_simpletuner_env.sh --install
+#   bash setup_simpletuner_env.sh --install
 #
 # Activate only (also safe to source from train script):
-#   source /mnt/afs_zhangyunzhe/EditFlow/setup_simpletuner_env.sh
+#   source setup_simpletuner_env.sh
 
 ENV_NAME="${SIMPLETUNER_ENV_NAME:-simpletuner}"
-CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_zhangyunzhe/miniconda3}"
+CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_gaochengmin/anaconda3}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKDIR="${SIMPLETUNER_WORKDIR:-${PROJECT_DIR}/simpletuner_kontext_sft}"
 
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-export HF_HOME="${HF_HOME:-/mnt/afs_zhangyunzhe/.cache/huggingface}"
+export HF_HOME="${HF_HOME:-/mnt/afs_gaochengmin/.cache/huggingface}"
 export SIMPLETUNER_LOG_LEVEL="${SIMPLETUNER_LOG_LEVEL:-INFO}"
 
 # shellcheck source=/dev/null

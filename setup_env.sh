@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # EditFlow environment. Activate with:
-#   source /mnt/afs_zhangyunzhe/EditFlow/setup_env.sh
+#   source <project_dir>/setup_env.sh
 set -euo pipefail
 
-CONDA_ROOT="/mnt/afs_zhangyunzhe/miniconda3"
+CONDA_ROOT="/mnt/afs_gaochengmin/anaconda3"
 ENV_NAME="arcflow"
-PROJECT_DIR="/mnt/afs_zhangyunzhe/EditFlow"
+# Resolve the project dir from this file's own location (works after copies/renames).
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export HF_ENDPOINT='https://hf-mirror.com'
 

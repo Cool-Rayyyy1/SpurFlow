@@ -119,6 +119,7 @@ class PretrainedVAEQwenImage(nn.Module):
     def __init__(self,
                  from_pretrained=None,
                  use_slicing=False,
+                 use_tiling=False,
                  freeze=True,
                  eval_mode=True,
                  torch_dtype='float32',
@@ -130,6 +131,8 @@ class PretrainedVAEQwenImage(nn.Module):
             from_pretrained, **kwargs)
         if use_slicing:
             self.vae.enable_slicing()
+        if use_tiling:
+            self.vae.enable_tiling()
         self.freeze = freeze
         self.eval_mode = eval_mode
         if self.freeze:
@@ -239,7 +242,7 @@ class PretrainedFlux2KleinTextEncoder(nn.Module):
     """Qwen3 text encoder used by FLUX.2 Klein (no CLIP pooled projections)."""
 
     def __init__(self,
-                 from_pretrained='/mnt/afs_zhangyunzhe/pretrained_models/FLUX.2-klein-base-9B',
+                 from_pretrained='/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B',
                  freeze=True,
                  eval_mode=True,
                  torch_dtype='bfloat16',

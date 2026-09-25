@@ -83,8 +83,9 @@ FLUX2_LATENT_CHANNELS = 32  # AutoencoderKLFlux2 latent_channels
 
 
 def _pick_qwen_vae_resolution(width: int, height: int) -> Tuple[int, int]:
+    area = int(os.environ.get("QWEN_VAE_IMAGE_AREA", str(QWEN_VAE_IMAGE_AREA)))
     return _calculate_qwen_dimensions(
-        QWEN_VAE_IMAGE_AREA, width, height, align=QWEN_VAE_ALIGN)
+        area, width, height, align=QWEN_VAE_ALIGN)
 
 
 def _pick_qwen_condition_resolution(width: int, height: int) -> Tuple[int, int]:

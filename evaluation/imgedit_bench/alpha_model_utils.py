@@ -1,4 +1,4 @@
-"""Load four-channel sigmoid-alpha checkpoints for inference."""
+"""Load four-channel continuous-alpha checkpoints for inference."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _ensure_path(path: str) -> None:
 
 
 def peek_alpha_head_dim(ckpt_path: Path) -> int:
-    """Return proj_out_alpha output dim (expected 4 for sigmoid alpha)."""
+    """Return proj_out_alpha output dim (expected 4 for continuous alpha)."""
     import torch
 
     payload = torch.load(str(ckpt_path), map_location='cpu', weights_only=False)
@@ -37,8 +37,7 @@ def validate_continuous_alpha_ckpt(ckpt_path: Path) -> None:
     if alpha_dim != 4:
         raise ValueError(
             f'Checkpoint {ckpt_path} has proj_out_alpha dim={alpha_dim}; '
-            'expected 4 for sigmoid alpha (ArcFluxEditNewAlphaTransformer2DModel). '
-            'Use a checkpoint trained with train_flux_edit_fixedeps_alpha_data.sh.'
+            'expected 4 for a continuous alpha model (sigmoid or Softsign-01).'
         )
 
 

@@ -13,6 +13,7 @@ from .arcqwen_edit_alpha_softsign import (
 from .arcflux2_edit_alpha_softsign import (
     ArcFlux2EditAlphaSoftsign01Transformer2DModel,
 )
+from .arcflux2 import ArcFlux2Transformer2DModel
 from .arcqwen_edit_arcflow import ArcQwenEditArcFlowImageTransformer2DModel
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     'ArcQwenEditImageTransformer2DModel', 'ArcQwenEditAlphaImageTransformer2DModel',
     'ArcQwenEditAlphaSoftsign01ImageTransformer2DModel',
     'ArcFlux2EditAlphaSoftsign01Transformer2DModel',
+    'ArcFlux2Transformer2DModel',
     'ArcQwenEditArcFlowImageTransformer2DModel']

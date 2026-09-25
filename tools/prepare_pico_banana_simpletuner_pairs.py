@@ -43,28 +43,40 @@ def _iter_jsonl(path: Path) -> Iterable[dict]:
                 raise ValueError(f"Invalid JSON on line {line_no} of {path}") from e
 
 
+def _pick(row: dict, keys: list[str]) -> Optional[str]:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
 def _resolve_pair(
     row: dict,
     data_root: Path,
     edited_images_dir: str,
-    source_column: str,
-    target_column: str,
-    prompt_column: str,
+    source_keys: list[str],
+    target_keys: list[str],
+    prompt_keys: list[str],
     summarized_prompt_column: Optional[str],
     use_summarized: bool,
 ) -> Optional[Tuple[Path, Path, str]]:
-    src = Path(row[source_column])
+    src_raw = _pick(row, source_keys)
+    tgt_raw = _pick(row, target_keys)
+    if not src_raw or not tgt_raw:
+        return None
+    src = Path(src_raw)
     if not src.is_absolute():
         src = data_root / src
-    tgt_rel = row[target_column]
-    tgt = Path(tgt_rel)
+    tgt = Path(tgt_raw)
     if not tgt.is_absolute():
-        tgt = data_root / edited_images_dir / tgt_rel
+        tgt = data_root / edited_images_dir / tgt_raw
 
+    prompt = ""
     if use_summarized and summarized_prompt_column and row.get(summarized_prompt_column):
         prompt = str(row[summarized_prompt_column]).strip()
-    else:
-        prompt = str(row[prompt_column]).strip()
+    if not prompt:
+        prompt = (_pick(row, prompt_keys) or "").strip()
     if not prompt:
         return None
     if not src.is_file() or not tgt.is_file():
@@ -124,7 +136,7 @@ def main() -> int:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("/mnt/afs_zhangyunzhe/dataset/pico-banana-400k"),
+        default=Path("/mnt/afs_gaochengmin/data/pico-banana-400k"),
     )
     parser.add_argument(
         "--jsonl",
@@ -138,9 +150,12 @@ def main() -> int:
         default=None,
         help="Default: <data-root>/simpletuner_pairs",
     )
-    parser.add_argument("--source-column", default="local_input_image")
-    parser.add_argument("--target-column", default="output_image")
-    parser.add_argument("--prompt-column", default="text")
+    parser.add_argument("--source-column", default="local_input_image,input_path")
+    parser.add_argument("--target-column", default="output_image,output_path")
+    parser.add_argument(
+        "--prompt-column",
+        default="text,instruction,Edit_Instruction,gemma_instruction_separate",
+    )
     parser.add_argument("--summarized-prompt-column", default="summarized_text")
     parser.add_argument(
         "--use-summarized",
@@ -166,6 +181,9 @@ def main() -> int:
     if not jsonl_path.is_absolute():
         jsonl_path = data_root / jsonl_path
     out_root = args.out_root or (data_root / "simpletuner_pairs")
+    source_keys = [k.strip() for k in str(args.source_column).split(",") if k.strip()]
+    target_keys = [k.strip() for k in str(args.target_column).split(",") if k.strip()]
+    prompt_keys = [k.strip() for k in str(args.prompt_column).split(",") if k.strip()]
 
     if not jsonl_path.is_file():
         print(f"[error] jsonl not found: {jsonl_path}", file=sys.stderr)
@@ -178,9 +196,9 @@ def main() -> int:
             row,
             data_root=data_root,
             edited_images_dir=args.edited_images_dir,
-            source_column=args.source_column,
-            target_column=args.target_column,
-            prompt_column=args.prompt_column,
+            source_keys=source_keys,
+            target_keys=target_keys,
+            prompt_keys=prompt_keys,
             summarized_prompt_column=args.summarized_prompt_column,
             use_summarized=args.use_summarized,
         )

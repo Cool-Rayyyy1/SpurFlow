@@ -119,7 +119,7 @@ class ArcFlowImitationBase(GaussianFlow):
 
     def piid_segment_momentum(
             self, teacher, policy, x_t_src, raw_t_src, sigma_t_src, teacher_ratio, segment_size,
-            teacher_kwargs, get_x_t_dst=False):
+            teacher_kwargs, get_x_t_dst=False, loss_weight=None):
         eps = self.train_cfg.get('eps', 1e-4)
         total_substeps = self.train_cfg.get('total_substeps', 128)
         num_intermediate_states = self.train_cfg.get('num_intermediate_states', 2)
@@ -196,6 +196,12 @@ class ArcFlowImitationBase(GaussianFlow):
             u_t=torch.cat(all_tgt_u, dim=0),
             timesteps=torch.cat(all_timesteps, dim=0)
         )
+        if loss_weight is not None:
+            # Per-token loss weight, tiled to match the num_intermediate_states
+            # copies concatenated along the batch dim. Only consumed when the
+            # flow_loss data_info maps a `weight` key.
+            loss_kwargs['weight'] = loss_weight.repeat(
+                num_intermediate_states, *((loss_weight.dim() - 1) * [1]))
         loss = self.flow_loss(loss_kwargs)
 
         if get_x_t_dst:

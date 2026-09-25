@@ -9,7 +9,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DATA_ROOT="${DATA_ROOT:-/mnt/afs_zhangyunzhe/dataset/pico-banana-400k}"
+DATA_ROOT="${DATA_ROOT:-/mnt/afs_gaochengmin/data/pico-banana-400k}"
 OUT_ROOT="${OUT_ROOT:-${DATA_ROOT}/simpletuner_pairs}"
 JSONL="${JSONL:-jsonl/sft_with_local_source_image_path.jsonl}"
 VAL_SIZE="${VAL_SIZE:-128}"
@@ -17,7 +17,7 @@ MAX_SAMPLES="${MAX_SAMPLES:-0}"
 USE_SUMMARIZED="${USE_SUMMARIZED:-0}"
 FORCE="${FORCE:-0}"
 
-CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_zhangyunzhe/miniconda3}"
+CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_gaochengmin/anaconda3}"
 ENV_NAME="${SIMPLETUNER_ENV_NAME:-simpletuner}"
 if [[ -f "${CONDA_ROOT}/etc/profile.d/conda.sh" ]]; then
     # shellcheck source=/dev/null

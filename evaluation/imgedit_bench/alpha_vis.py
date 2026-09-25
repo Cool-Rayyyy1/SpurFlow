@@ -253,7 +253,7 @@ def render_alpha_grid_blank(
     bg_color: Tuple[int, int, int] = (255, 255, 255),
     continuous: bool = False,
 ) -> Image.Image:
-    """Blank canvas + grid + per-patch alpha labels (binary {0,1} or continuous sigmoid)."""
+    """Blank canvas + grid + per-patch alpha labels (binary or continuous)."""
     grid, n_ph, n_pw = patch_alpha_means(alpha_latent, img_height, img_width, patch_image=patch_image)
 
     valid = grid[~np.isnan(grid)]
@@ -296,7 +296,7 @@ def render_alpha_grid_blank(
     out = Image.new("RGB", (img_width, img_height + header_h), bg_color)
     out.paste(canvas, (0, header_h))
     header = ImageDraw.Draw(out)
-    alpha_kind = "continuous sigmoid" if continuous else "0/1"
+    alpha_kind = "continuous" if continuous else "0/1"
     title = f"alpha ({alpha_kind}) per {patch_image}px cell"
     if step_label:
         title = f"{title}  {step_label}"
@@ -386,7 +386,7 @@ def render_continuous_alpha_on_src(
     title_prefix: str = "Alpha heatmap",
     draw_grid: bool = True,
 ) -> Image.Image:
-    """Continuous sigmoid α colormap tint over source so the image stays visible."""
+    """Continuous α colormap tint over source so the image stays visible."""
     src = np.array(src_pil.convert("RGB"), dtype=np.float32)
     img_h, img_w = src.shape[:2]
     alpha_up = upsample_alpha_to_image(alpha_latent, img_h, img_w, smooth=True)
@@ -519,7 +519,8 @@ def capture_student_alphas(
 
     If ``return_edited`` is True, also returns the decoded edited PIL image.
     """
-    src_pil = preprocess_fn(image)
+    orig = image.convert("RGB")
+    src_pil = preprocess_fn(orig)
     source = pil_to_tensor_fn(src_pil).to(device)
     gen = torch.Generator(device=device).manual_seed(seed)
     if hasattr(model.vae, "dtype"):
@@ -535,6 +536,10 @@ def capture_student_alphas(
         "source_images": source,
         "noise": noise,
     }
+    # Qwen VL must see the 384-area condition image, not the 1024 VAE source.
+    # Missing this collapses ImgEdit Basic (same bug as the alpha-vis path).
+    from run_editflow_imgedit_infer import add_qwen_condition_source_images
+    add_qwen_condition_source_images(data, orig, device)
     test_cfg_override = {
         "nfe": num_inference_steps,
         "distilled_guidance_scale": guidance_scale,

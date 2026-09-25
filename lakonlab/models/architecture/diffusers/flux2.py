@@ -244,6 +244,10 @@ else:
             else:
                 txt_ids = txt_ids.to(device=device)
 
+            # Official Flux2KleinPipeline: scheduler_t in [0, 1000] is passed as
+            # t/1000, then Flux2Transformer2DModel.forward does timestep * 1000.
+            # EditFlow uses num_timesteps=1, so t is already sigma in [0, 1]
+            # (same as Kontext). Pass t as-is; do NOT divide by 1000 again.
             output = super().forward(
                 hidden_states=tokens.to(dtype=dtype),
                 encoder_hidden_states=encoder_hidden_states.to(dtype=dtype),

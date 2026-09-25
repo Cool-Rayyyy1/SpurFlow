@@ -17,17 +17,17 @@
 
 set -euo pipefail
 
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_zhangyunzhe}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17}"
 EDITFLOW_DIR="${EDITFLOW_DIR:-${WORKSPACE_ROOT}/EditFlow}"
 EVAL_DIR="${EVAL_DIR:-${EDITFLOW_DIR}/evaluation/imgedit_bench}"
-DATA_ROOT="${DATA_ROOT:-${WORKSPACE_ROOT}/dataset/imgedit}"
+DATA_ROOT="${DATA_ROOT:-/mnt/afs_gaochengmin/data/imgedit}"
 
-CONDA_ROOT="${CONDA_ROOT:-${WORKSPACE_ROOT}/miniconda3}"
+CONDA_ROOT="${CONDA_ROOT:-/mnt/afs_gaochengmin/anaconda3}"
 CONDA_ENV="${CONDA_ENV:-arcflow}"
 
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-export HF_HOME="${HF_HOME:-${WORKSPACE_ROOT}/.cache/huggingface}"
-export KONTEXT_MODEL_PATH="${KONTEXT_MODEL_PATH:-${WORKSPACE_ROOT}/pretrained_models/FLUX.1-Kontext-dev}"
+export HF_HOME="${HF_HOME:-/mnt/afs_gaochengmin/.cache/huggingface}"
+export KONTEXT_MODEL_PATH="${KONTEXT_MODEL_PATH:-/mnt/afs_gaochengmin/checkpoints/FLUX.1-Kontext-dev}"
 export IMGEDIT_BENCH_ROOT="${IMGEDIT_BENCH_ROOT:-${DATA_ROOT}/benchmark/Benchmark}"
 export PYTHONPATH="${EDITFLOW_DIR}:${PYTHONPATH:-}"
 
@@ -44,6 +44,7 @@ REF_TEACHER_OUTPUT="${REF_TEACHER_OUTPUT:-${EVAL_DIR}/outputs/runs/20260610_0115
 STUDENT_NFE="${STUDENT_NFE:-2}"
 STUDENT_GUIDANCE="${STUDENT_GUIDANCE:-3.5}"
 export STUDENT_GUIDANCE
+export STUDENT_RESIZE_MODE="${STUDENT_RESIZE_MODE:-center_crop}"
 
 SUITE="${SUITE:-all}"
 MAX_SAMPLES="${MAX_SAMPLES:-}"
@@ -229,7 +230,9 @@ source "${CONDA_ROOT}/etc/profile.d/conda.sh"
 conda activate "${CONDA_ENV}"
 # shellcheck source=/dev/null
 source "${EDITFLOW_DIR}/setup_env.sh" 2>/dev/null || source "${EDITFLOW_DIR}/env.sh" 2>/dev/null || true
-export HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 DIFFUSERS_OFFLINE=0
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
+export DIFFUSERS_OFFLINE="${DIFFUSERS_OFFLINE:-0}"
 
 cd "${EDITFLOW_DIR}"
 
@@ -256,6 +259,12 @@ if [[ "${SCORE_ONLY}" != "1" ]]; then
     echo "[skip] SKIP_STUDENT_GEN=1 — reusing existing student outputs in ${STUDENT_OUTPUT}"
   fi
   run_comparisons
+  if [[ "${DUMP_MIXTURE_STATS}" == "1" ]]; then
+    echo "[ari] per-step ARI: mixture dominant_k vs edit_type (basic suite)"
+    python "${EDITFLOW_DIR}/evaluation/gedit_v2/compute_pi_ari.py" \
+      --output_dir "${STUDENT_OUTPUT}" \
+      || echo "[ari] WARNING: ARI computation failed"
+  fi
 fi
 
 if [[ "${GEN_ONLY}" != "1" ]]; then

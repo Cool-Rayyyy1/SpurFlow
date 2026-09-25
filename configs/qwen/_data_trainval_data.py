@@ -1,4 +1,4 @@
-data_root = '/mnt/afs_zhangyunzhe/dataset/pico-banana-400k'
+data_root = '/mnt/afs_gaochengmin/data/pico-banana-400k'
 
 # Data-based edit distillation: x0 = edited target latent, source image conditions Qwen edit.
 data = dict(

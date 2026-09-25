@@ -26,7 +26,7 @@ _base_ = ['./_fsdp_train.py', './_data_trainval_data.py']
 #   (area-cap ~1MP + multiple-of-16; NOT Kontext buckets)
 
 name = 'gmklein_base_uedit_fixedeps_alpha_softsign01_k16_2nfe_pico400k'
-klein_model = '/mnt/afs_zhangyunzhe/pretrained_models/FLUX.2-klein-base-9B'
+klein_model = '/mnt/afs_gaochengmin/checkpoints/FLUX.2-klein-base-9B'
 klein_transformer = f'{klein_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
@@ -118,6 +118,13 @@ model = dict(
         num_timesteps=1,
         denoising_mean_mode='U'),
     tie_teacher=True,
+    text_encoder=dict(
+        type='PretrainedFlux2KleinTextEncoder',
+        from_pretrained=klein_model,
+        torch_dtype='bfloat16',
+        max_sequence_length=512,
+        text_encoder_out_layers=(9, 18, 27),
+    ),
 )
 
 save_interval = 500
@@ -159,9 +166,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-            'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+            '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+            'evaluation/imgedit_bench/annotations/basic_edit.json'),
+        bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],

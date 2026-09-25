@@ -187,16 +187,29 @@ def main():
         _, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
 
+    rank, _ = get_dist_info() if distributed else (0, 1)
+
     # create per-run work_dir: work_dirs/<exp_name>/<run_id>/
     # run_id defaults to timestamp; override with RUN_ID or RESUME_RUN_DIR env.
     timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     run_id = os.environ.get('RESUME_RUN_DIR') or os.environ.get('RUN_ID') or timestamp
+    if distributed:
+        # Keep every rank on the same run_id (clocks / startup can differ).
+        run_id_list = [run_id]
+        torch.distributed.broadcast_object_list(run_id_list, src=0)
+        run_id = run_id_list[0]
     exp_work_dir = osp.abspath(cfg.work_dir)
     cfg.work_dir = osp.join(exp_work_dir, run_id)
-    mmcv.mkdir_or_exist(exp_work_dir)
-    mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
-    # dump config snapshot for this run
-    cfg.dump(osp.join(cfg.work_dir, osp.basename(args.config)))
+    cfg_snapshot = osp.join(cfg.work_dir, osp.basename(args.config))
+    if rank == 0:
+        mmcv.mkdir_or_exist(exp_work_dir)
+        mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
+        # AFS rejects concurrent create/overwrite of the same file (EEXIST).
+        if osp.isfile(cfg_snapshot):
+            os.remove(cfg_snapshot)
+        cfg.dump(cfg_snapshot)
+    if distributed:
+        torch.distributed.barrier()
     # init the logger before other steps
     log_file = osp.join(cfg.work_dir, 'train.log')
     logger = get_root_logger(log_file=log_file, log_level=cfg.log_level)

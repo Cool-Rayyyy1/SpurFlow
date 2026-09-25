@@ -5,7 +5,7 @@ _base_ = ['./_fsdp_train_edit.py', './_data_trainval_data.py']
 # The four channels map independently to the four positions in each 2x2 patch.
 # student_u = path_epsilon - alpha * x_ref - pred_delta
 name = 'gmqwen_uedit_fixedeps_alpha_k16_2nfe_pico400k'
-qwen_model = '/mnt/afs_zhangyunzhe/pretrained_models/Qwen-Image-Edit-2511'
+qwen_model = '/mnt/afs_gaochengmin/checkpoints/Qwen-Image-Edit-2511'
 qwen_transformer = f'{qwen_model}/transformer/diffusion_pytorch_model.safetensors.index.json'
 
 model = dict(
@@ -131,9 +131,9 @@ sample_eval = dict(
     dataset=dict(
         type='ImgEditBenchSample',
         annotations_path=(
-            '/mnt/afs_zhangyunzhe/EditFlow/evaluation/imgedit_bench/'
-            'annotations/basic_edit.json'),
-        bench_root='/mnt/afs_zhangyunzhe/dataset/imgedit/benchmark/Benchmark',
+            '/mnt/afs_gaochengmin/projects/zhangyunzhe/EditFlow_8.17/EditFlow/'
+            'evaluation/imgedit_bench/annotations/basic_edit.json'),
+        bench_root='/mnt/afs_gaochengmin/data/imgedit/benchmark/Benchmark',
         categories=[
             'action', 'add', 'adjust', 'background', 'compose',
             'extract', 'remove', 'replace', 'style'],

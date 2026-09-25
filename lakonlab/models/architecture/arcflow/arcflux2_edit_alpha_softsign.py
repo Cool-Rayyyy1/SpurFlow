@@ -179,7 +179,9 @@ class ArcFlux2EditAlphaSoftsign01Transformer2DModel(Flux2Transformer2DModel):
         hidden_states = hidden_states.to(dtype=dtype)
         encoder_hidden_states = encoder_hidden_states.to(dtype=dtype)
 
-        # Timesteps sinusoidal emb is often float32; cast to weight dtype before Linear.
+        # Official Flux2Transformer2DModel.forward does timestep * 1000 before
+        # time_guidance_embed. This path bypasses super().forward, so scale here.
+        # EditFlow t is sigma in [0, 1] (num_timesteps=1), matching Kontext ArcFlux.
         timestep = timestep.to(dtype=dtype) * 1000
         temb = self.time_guidance_embed(timestep, None)
         if temb.dtype != dtype:

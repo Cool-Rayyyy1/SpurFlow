@@ -7,8 +7,8 @@
 
 set -euo pipefail
 
-WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_zhangyunzhe}"
-DATA_ROOT="${DATA_ROOT:-${WORKSPACE_ROOT}/dataset/imgedit}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-/mnt/afs_gaochengmin/projects/zhangyunzhe/new5}"
+DATA_ROOT="${DATA_ROOT:-/mnt/afs_gaochengmin/data/imgedit}"
 TAR_PATH="${DATA_ROOT}/Benchmark.tar"
 EXTRACT_DIR="${DATA_ROOT}/benchmark"
 
